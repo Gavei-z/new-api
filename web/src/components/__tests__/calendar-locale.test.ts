@@ -16,17 +16,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-/**
- * Application-wide constants
- */
+import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 
-// System Configuration Defaults
-export const DEFAULT_SYSTEM_NAME = 'uniRouters'
-export const DEFAULT_LOGO = '/logo.png'
+import { getCalendarLocale } from '../calendar-locale'
 
-// LocalStorage Keys
-export const STORAGE_KEYS = {
-  SYSTEM_NAME: 'system_name',
-  LOGO: 'logo',
-  FOOTER_HTML: 'footer_html',
-} as const
+describe('calendar locale', () => {
+  test('uses Simplified Chinese calendar labels for Chinese interfaces', () => {
+    assert.equal(getCalendarLocale('zhCN').code, 'zh-CN')
+    assert.equal(getCalendarLocale('zh-TW').code, 'zh-CN')
+  })
+
+  test('uses English calendar labels for hidden interface languages', () => {
+    assert.equal(getCalendarLocale('fr').code, 'en-US')
+    assert.equal(getCalendarLocale('en').code, 'en-US')
+  })
+})

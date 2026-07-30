@@ -93,6 +93,7 @@ For commercial licensing, please contact support@quantumnous.com
   }
   html {
     @apply overflow-x-hidden font-sans;
+    scroll-behavior: smooth;
   }
   body {
     @apply bg-background text-foreground has-[div[data-variant='inset']]:bg-sidebar min-h-svh w-full;
@@ -120,6 +121,107 @@ For commercial licensing, please contact support@quantumnous.com
     textarea {
       font-size: 16px !important;
     }
+  }
+}
+
+@layer utilities {
+  .home-grid {
+    background-image:
+      linear-gradient(
+        color-mix(in oklch, var(--foreground) 7%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        90deg,
+        color-mix(in oklch, var(--foreground) 7%, transparent) 1px,
+        transparent 1px
+      );
+    background-size: 64px 64px;
+  }
+
+  .home-dots {
+    background-image: radial-gradient(
+      color-mix(in oklch, var(--foreground) 9%, transparent) 1px,
+      transparent 1px
+    );
+    background-size: 24px 24px;
+  }
+
+  .home-gradient-text {
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6, #06b6d4);
+    background-clip: text;
+    color: transparent;
+  }
+
+  .home-primary-button {
+    background: linear-gradient(90deg, #2563eb, #7c3aed);
+    box-shadow: 0 12px 40px -12px rgba(59, 130, 246, 0.7);
+    transition:
+      filter 200ms ease,
+      transform 200ms ease;
+  }
+
+  .home-primary-button:hover {
+    filter: brightness(1.15);
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes home-hero-in {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes home-orb {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.2);
+  }
+}
+
+.home-hero-in {
+  animation: home-hero-in 600ms ease-out both;
+}
+.home-delay-1 {
+  animation-delay: 100ms;
+}
+.home-delay-2 {
+  animation-delay: 200ms;
+}
+.home-delay-3 {
+  animation-delay: 350ms;
+}
+.home-delay-4 {
+  animation-delay: 500ms;
+}
+.home-delay-5 {
+  animation-delay: 700ms;
+}
+.home-orb {
+  animation: home-orb 8s ease-in-out infinite;
+}
+.home-orb-delayed {
+  animation-delay: -4s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .home-hero-in,
+  .home-orb {
+    animation: none;
   }
 }
 

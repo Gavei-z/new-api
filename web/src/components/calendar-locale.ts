@@ -16,17 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-/**
- * Application-wide constants
- */
+import type { Locale } from 'react-day-picker'
+import { enUS } from 'react-day-picker/locale/en-US'
+import { zhCN } from 'react-day-picker/locale/zh-CN'
 
-// System Configuration Defaults
-export const DEFAULT_SYSTEM_NAME = 'uniRouters'
-export const DEFAULT_LOGO = '/logo.png'
+import { normalizeInterfaceLanguage } from '@/i18n/languages'
 
-// LocalStorage Keys
-export const STORAGE_KEYS = {
-  SYSTEM_NAME: 'system_name',
-  LOGO: 'logo',
-  FOOTER_HTML: 'footer_html',
-} as const
+const calendarLocales = {
+  en: enUS,
+  zhCN,
+} satisfies Record<ReturnType<typeof normalizeInterfaceLanguage>, Locale>
+
+export function getCalendarLocale(language?: string | null): Locale {
+  return calendarLocales[normalizeInterfaceLanguage(language)]
+}

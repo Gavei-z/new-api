@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Zap } from 'lucide-react'
 import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -26,7 +27,7 @@ import { useTheme } from '@/context/theme-provider'
 import { isLikelyHtml } from '@/lib/content-format'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { CTA, Features, Hero, HowItWorks, Stats } from './components'
+import { LandingPage } from './components/landing-page'
 import { useHomePageContent } from './hooks'
 
 export function Home() {
@@ -121,13 +122,30 @@ export function Home() {
   }
 
   return (
-    <PublicLayout showMainContainer={false}>
-      <Hero isAuthenticated={isAuthenticated} />
-      <Stats />
-      <Features />
-      <HowItWorks />
-      <CTA isAuthenticated={isAuthenticated} />
-      <Footer />
+    <PublicLayout
+      showMainContainer={false}
+      showThemeSwitch
+      siteName='uniRouters'
+      logo={
+        <span className='flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 via-violet-500 to-cyan-500 text-white shadow-lg shadow-blue-500/30'>
+          <Zap className='size-4 fill-current' />
+        </span>
+      }
+      navLinks={[
+        { title: 'Models', href: '/models', requiresAuth: true },
+        { title: 'Pricing', href: '/pricing' },
+        {
+          title: 'Docs',
+          href: 'https://docs.newapi.pro',
+          external: true,
+        },
+      ]}
+    >
+      <LandingPage isAuthenticated={isAuthenticated} />
+      <Footer
+        name='uniRouters'
+        className='border-border bg-muted/30 text-foreground'
+      />
     </PublicLayout>
   )
 }
