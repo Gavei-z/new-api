@@ -26,6 +26,17 @@ export type UserPermissions = {
   admin_permissions?: AdminCapabilities
 }
 
+export type TeamIdentity = {
+  id: number
+  name: string
+  slug: string
+  status: number
+  member_status: number
+  role: number
+  role_name: 'member' | 'admin' | 'owner' | string
+  is_manager: boolean
+}
+
 export interface AuthUser {
   id: number
   username: string
@@ -53,6 +64,7 @@ export interface AuthUser {
   stripe_customer?: string
   sidebar_modules?: string
   permissions?: UserPermissions
+  team?: TeamIdentity
 }
 
 export interface LoginSession {

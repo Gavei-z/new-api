@@ -211,7 +211,7 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 		}
 	}
 
-	userQuota, err := model.GetUserQuota(info.UserId, false)
+	userQuota, err := service.ResolveRelayAvailableQuota(info)
 	if err != nil {
 		return &dto.MidjourneyResponse{
 			Code:        4,
@@ -518,7 +518,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		}
 	}
 
-	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+	userQuota, err := service.ResolveRelayAvailableQuota(relayInfo)
 	if err != nil {
 		return &dto.MidjourneyResponse{
 			Code:        4,

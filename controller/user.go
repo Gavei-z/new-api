@@ -516,7 +516,7 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 	userSetting := user.GetSetting()
 	permissions := calculateUserPermissions(user.Role)
 	permissions["admin_permissions"] = authz.Capabilities(user.Id, user.Role)
-	return map[string]interface{}{
+	data := map[string]interface{}{
 		"id":                user.Id,
 		"username":          user.Username,
 		"display_name":      user.DisplayName,
@@ -543,6 +543,10 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":       permissions,
 	}
+	if team := model.TeamContextForSelf(user.Id); team != nil {
+		data["team"] = team
+	}
+	return data
 }
 
 // 计算用户权限的辅助函数
@@ -1152,6 +1156,15 @@ func ManageUser(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgUserAdminCannotPromote)
 			return
 		}
+		isTeamMember, membershipErr := model.IsTeamMember(user.Id)
+		if membershipErr != nil {
+			common.ApiError(c, membershipErr)
+			return
+		}
+		if isTeamMember {
+			common.ApiError(c, model.ErrTeamMemberCannotPromote)
+			return
+		}
 		if user.Role >= common.RoleAdminUser {
 			common.ApiErrorI18n(c, i18n.MsgUserAlreadyAdmin)
 			return
@@ -1168,6 +1181,15 @@ func ManageUser(c *gin.Context) {
 		}
 		user.Role = common.RoleCommonUser
 	case "add_quota":
+		isTeamMember, membershipErr := model.IsTeamMember(user.Id)
+		if membershipErr != nil {
+			common.ApiError(c, membershipErr)
+			return
+		}
+		if isTeamMember {
+			common.ApiError(c, model.ErrTeamMemberPersonalQuota)
+			return
+		}
 		switch req.Mode {
 		case "add":
 			if req.Value <= 0 {

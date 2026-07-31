@@ -95,6 +95,8 @@ export function useTopNavLinks(): TopNavLink[] {
     }
   }
 
+  links.push({ title: t('Enterprise Service'), href: '/enterprise' })
+
   // About
   if (modules?.about !== false) {
     links.push({ title: t('About'), href: '/about' })

@@ -22,8 +22,18 @@ func GetSubscription(c *gin.Context) {
 		usedQuota = token.UsedQuota
 	} else {
 		userId := c.GetInt("id")
-		remainQuota, err = model.GetUserQuota(userId, false)
-		usedQuota, err = model.GetUserUsedQuota(userId)
+		_, team, teamErr := model.GetActiveTeamFundingContext(userId)
+		if teamErr != nil {
+			err = teamErr
+		} else if team != nil {
+			remainQuota = team.Quota
+			usedQuota = team.UsedQuota
+		} else {
+			remainQuota, err = model.GetUserQuota(userId, false)
+			if err == nil {
+				usedQuota, err = model.GetUserUsedQuota(userId)
+			}
+		}
 	}
 	if expiredTime <= 0 {
 		expiredTime = 0
@@ -78,7 +88,14 @@ func GetUsage(c *gin.Context) {
 		quota = token.UsedQuota
 	} else {
 		userId := c.GetInt("id")
-		quota, err = model.GetUserUsedQuota(userId)
+		_, team, teamErr := model.GetActiveTeamFundingContext(userId)
+		if teamErr != nil {
+			err = teamErr
+		} else if team != nil {
+			quota = team.UsedQuota
+		} else {
+			quota, err = model.GetUserUsedQuota(userId)
+		}
 	}
 	if err != nil {
 		openAIError := types.OpenAIError{

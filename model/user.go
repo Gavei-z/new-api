@@ -477,6 +477,9 @@ func DeleteUserById(id int) (err error) {
 	if id == 0 {
 		return errors.New("id 为空！")
 	}
+	if err := EnsureUserCanBeDeleted(id); err != nil {
+		return err
+	}
 	user := User{Id: id}
 	return user.Delete()
 }
@@ -484,6 +487,9 @@ func DeleteUserById(id int) (err error) {
 func HardDeleteUserById(id int) error {
 	if id == 0 {
 		return errors.New("id 为空！")
+	}
+	if err := EnsureUserCanBeDeleted(id); err != nil {
+		return err
 	}
 	user := User{Id: id}
 	return user.HardDelete()
@@ -854,6 +860,9 @@ func (user *User) Delete() error {
 	if user.Id == 0 {
 		return errors.New("id 为空！")
 	}
+	if err := EnsureUserCanBeDeleted(user.Id); err != nil {
+		return err
+	}
 	var nextAuthVersion int64
 	if err := DB.Transaction(func(tx *gorm.DB) error {
 		var err error
@@ -877,6 +886,9 @@ func (user *User) Delete() error {
 func (user *User) HardDelete() error {
 	if user.Id == 0 {
 		return errors.New("id 为空！")
+	}
+	if err := EnsureUserCanBeDeleted(user.Id); err != nil {
+		return err
 	}
 	var tokens []Token
 	var deletedAuthVersion int64
