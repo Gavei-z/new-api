@@ -168,26 +168,6 @@ export function Footer(props: FooterProps) {
   const fallbackColumns = useMemo<FooterColumnProps[]>(
     () => [
       {
-        title: t('footer.columns.about.title'),
-        links: [
-          {
-            text: t('footer.columns.about.links.aboutProject'),
-            href: '/docs',
-            hash: 'overview',
-          },
-          {
-            text: t('footer.columns.about.links.contact'),
-            href: '/docs',
-            hash: 'troubleshooting',
-          },
-          {
-            text: t('footer.columns.about.links.features'),
-            href: '/docs',
-            hash: 'api-reference',
-          },
-        ],
-      },
-      {
         title: t('footer.columns.docs.title'),
         links: [
           {

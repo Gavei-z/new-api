@@ -118,7 +118,6 @@ export type EnterpriseInquiryInput = {
   phone: string
   wechat: string
   team_size: string
-  expected_monthly_usage: string
   message: string
   privacy_accepted: boolean
   website: string

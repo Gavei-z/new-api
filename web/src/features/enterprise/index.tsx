@@ -25,9 +25,6 @@ import {
   Check,
   CircleDollarSign,
   KeyRound,
-  LockKeyhole,
-  MessagesSquare,
-  ShieldCheck,
   UsersRound,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -64,7 +61,6 @@ const inquirySchema = z
     phone: z.string().trim().max(40),
     wechat: z.string().trim().max(80),
     team_size: z.string().max(40),
-    expected_monthly_usage: z.string().trim().max(80),
     message: z.string().trim().max(2000),
     privacy_accepted: z.boolean().refine(Boolean),
     website: z.string().max(0),
@@ -83,7 +79,6 @@ const defaultValues: InquiryValues = {
   phone: '',
   wechat: '',
   team_size: '',
-  expected_monthly_usage: '',
   message: '',
   privacy_accepted: false,
   website: '',
@@ -224,69 +219,47 @@ function EnterpriseInquiryForm() {
               />
             </div>
 
-            <div className='grid gap-5 sm:grid-cols-2'>
-              <FormField
-                control={form.control}
-                name='team_size'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Expected Team Size')}</FormLabel>
-                    <FormControl>
-                      <NativeSelect
-                        className='w-full'
-                        value={field.value}
-                        onChange={field.onChange}
-                      >
-                        <NativeSelectOption value=''>
-                          {t('Select team size')}
-                        </NativeSelectOption>
-                        <NativeSelectOption value='1-10'>
-                          1–10
-                        </NativeSelectOption>
-                        <NativeSelectOption value='11-50'>
-                          11–50
-                        </NativeSelectOption>
-                        <NativeSelectOption value='51-200'>
-                          51–200
-                        </NativeSelectOption>
-                        <NativeSelectOption value='201+'>
-                          201+
-                        </NativeSelectOption>
-                      </NativeSelect>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name='expected_monthly_usage'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Expected Monthly Usage')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder={t('For example: 2 billion tokens')}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+            <FormField
+              control={form.control}
+              name='team_size'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Expected Team Size')}</FormLabel>
+                  <FormControl>
+                    <NativeSelect
+                      className='w-full'
+                      value={field.value}
+                      onChange={field.onChange}
+                    >
+                      <NativeSelectOption value=''>
+                        {t('Select team size')}
+                      </NativeSelectOption>
+                      <NativeSelectOption value='1-10'>1–10</NativeSelectOption>
+                      <NativeSelectOption value='11-50'>
+                        11–50
+                      </NativeSelectOption>
+                      <NativeSelectOption value='51-200'>
+                        51–200
+                      </NativeSelectOption>
+                      <NativeSelectOption value='201+'>201+</NativeSelectOption>
+                    </NativeSelect>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}
               name='message'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Requirements')}</FormLabel>
+                  <FormLabel>{t('Notes')}</FormLabel>
                   <FormControl>
                     <Textarea
                       className='min-h-28'
                       placeholder={t(
-                        'Tell us about your models, concurrency, compliance, or support requirements.'
+                        'Add any preferred models, concurrency, compliance, support, or onboarding notes.'
                       )}
                       {...field}
                     />
@@ -362,9 +335,9 @@ function EnterpriseInquiryForm() {
 const capabilities = [
   {
     icon: UsersRound,
-    title: 'Tenant-level member governance',
+    title: 'Team member management',
     description:
-      'Create accounts inside one isolated team boundary and manage member access without exposing system administration.',
+      'Create member accounts within your team and manage access from one workspace.',
   },
   {
     icon: CircleDollarSign,
@@ -378,12 +351,6 @@ const capabilities = [
     description:
       'Understand requests, token volume, and cost by member and model from one team console.',
   },
-  {
-    icon: LockKeyhole,
-    title: 'Least-privilege administration',
-    description:
-      'Team administrators cannot access channels, system settings, other tenants, or consumer users.',
-  },
 ]
 
 const steps = [
@@ -391,7 +358,7 @@ const steps = [
     number: '01',
     title: 'Tell us what you need',
     description:
-      'Share your team size, expected usage, preferred models, and support requirements.',
+      'Share your team size, preferred models, and any notes that will help us understand your needs.',
   },
   {
     number: '02',
@@ -429,7 +396,7 @@ export function Enterprise() {
               </h1>
               <p className='text-muted-foreground mx-auto mt-6 max-w-2xl text-lg leading-8 text-balance'>
                 {t(
-                  'Centralize AI access, team funding, member governance, and usage visibility without giving tenant administrators control of your infrastructure.'
+                  'Centralize AI access, shared funding, member management, and usage visibility for your team in one place.'
                 )}
               </p>
               <div className='mt-8 flex flex-col justify-center gap-3 sm:flex-row'>
@@ -443,7 +410,7 @@ export function Enterprise() {
               </div>
               <div className='text-muted-foreground mt-8 flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm'>
                 {[
-                  'Isolated tenant model',
+                  'Dedicated team workspace',
                   'Auditable balance ledger',
                   'Role-aware console',
                 ].map((item) => (
@@ -461,13 +428,13 @@ export function Enterprise() {
           <div className='container mx-auto px-4'>
             <div className='mx-auto max-w-2xl text-center'>
               <p className='text-primary text-sm font-semibold tracking-wider uppercase'>
-                {t('One workspace, clear boundaries')}
+                {t('Designed for team collaboration')}
               </p>
               <h2 className='mt-3 text-3xl font-bold tracking-tight sm:text-4xl'>
-                {t('Everything a team needs—nothing it should not see')}
+                {t('Everything your team needs in one workspace')}
               </h2>
             </div>
-            <div className='mx-auto mt-12 grid max-w-6xl gap-4 md:grid-cols-2'>
+            <div className='mx-auto mt-12 grid max-w-6xl gap-4 md:grid-cols-3'>
               {capabilities.map((capability) => {
                 const Icon = capability.icon
                 return (
@@ -495,32 +462,32 @@ export function Enterprise() {
             <div className='mx-auto grid max-w-6xl gap-12 lg:grid-cols-[1fr_1.1fr] lg:items-center'>
               <div>
                 <p className='text-primary text-sm font-semibold tracking-wider uppercase'>
-                  {t('Permission model')}
+                  {t('Team collaboration')}
                 </p>
                 <h2 className='mt-3 text-3xl font-bold tracking-tight'>
-                  {t('Control stays with the right people')}
+                  {t('Clear roles, smooth collaboration')}
                 </h2>
                 <p className='text-muted-foreground mt-4 leading-7'>
                   {t(
-                    'The super administrator retains global control. Each team administrator can only manage members and usage inside the team it owns.'
+                    'Team owners can organize members, shared funding, and usage insights from one enterprise console.'
                   )}
                 </p>
                 <div className='mt-7 space-y-4'>
                   {[
                     {
-                      icon: ShieldCheck,
-                      title: 'Super administrator',
-                      text: 'Global teams, users, channels, settings, balance grants, and enterprise inquiries.',
-                    },
-                    {
                       icon: KeyRound,
-                      title: 'Team administrator',
-                      text: 'Current team members, shared funding, team usage, and balance history only.',
+                      title: 'Team Owner',
+                      text: 'Create member accounts, manage shared funding, and review team usage.',
                     },
                     {
-                      icon: MessagesSquare,
+                      icon: UsersRound,
                       title: 'Team member',
-                      text: 'Normal API access funded by the team wallet, with no administrative visibility.',
+                      text: "Use the team's AI models and API access through the shared balance.",
+                    },
+                    {
+                      icon: BarChart3,
+                      title: 'Usage insights',
+                      text: 'Review usage by member and model to support budgeting and planning.',
                     },
                   ].map((item) => {
                     const Icon = item.icon
@@ -556,8 +523,8 @@ export function Enterprise() {
                     {[
                       ['Available balance', 'Shared wallet'],
                       ['Usage visibility', 'By member + model'],
-                      ['Member accounts', 'Tenant-bound'],
-                      ['System access', 'Restricted'],
+                      ['Member accounts', 'Managed by the team'],
+                      ['Billing history', 'Auditable'],
                     ].map(([label, value]) => (
                       <div
                         key={label}
@@ -624,14 +591,14 @@ export function Enterprise() {
                 </h2>
                 <p className='text-muted-foreground mt-4 leading-7'>
                   {t(
-                    'Leave your requirements and a contact method. We will use them only to discuss your enterprise service needs.'
+                    'Leave your notes and a contact method. We will use them only to discuss your enterprise service needs.'
                   )}
                 </p>
                 <div className='mt-8 space-y-3 text-sm'>
                   {[
                     'Shared team funding and auditable billing',
                     'Member-level usage visibility',
-                    'A clear tenant permission boundary',
+                    'Dedicated team workspace',
                   ].map((item) => (
                     <div key={item} className='flex items-center gap-2'>
                       <Check className='size-4 text-emerald-600' />

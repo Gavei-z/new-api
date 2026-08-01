@@ -111,7 +111,6 @@ export type SiteSettings = {
   SystemName: string
   Logo: string
   Footer: string
-  About: string
   HomePageContent: string
   ServerAddress: string
   'legal.user_agreement': string
