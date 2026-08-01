@@ -91,6 +91,17 @@ func taskAdjustFunding(task *model.Task, delta int) error {
 	if taskIsSubscription(task) {
 		return model.PostConsumeUserSubscriptionDelta(task.PrivateData.SubscriptionId, int64(delta))
 	}
+	if task.PrivateData.BillingSource == BillingSourceTeam && task.PrivateData.TeamId > 0 {
+		return model.ApplyTeamQuotaChange(model.TeamQuotaChange{
+			TeamId:         task.PrivateData.TeamId,
+			UserId:         task.UserId,
+			ActorUserId:    task.UserId,
+			Type:           model.TeamQuotaTypeTaskAdjustment,
+			QuotaDelta:     -delta,
+			UsedQuotaDelta: delta,
+			IdempotencyKey: fmt.Sprintf("team:%d:task:%s:quota:%d:%d", task.PrivateData.TeamId, task.TaskID, task.Quota, task.Quota+delta),
+		})
+	}
 	if delta > 0 {
 		return model.DecreaseUserQuota(task.UserId, delta, false)
 	}

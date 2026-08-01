@@ -89,6 +89,8 @@ export function useTopNavLinks(): TopNavLink[] {
     links.push({ title: t('Docs'), href: UNIROUTERS_DOCS_PATH })
   }
 
+  links.push({ title: t('Enterprise Service'), href: '/enterprise' })
+
   // About
   if (modules?.about !== false) {
     links.push({ title: t('About'), href: '/about' })

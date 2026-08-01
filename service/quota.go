@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -90,7 +91,7 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	if relayInfo.UsePrice {
 		return nil
 	}
-	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+	userQuota, err := ResolveRelayAvailableQuota(relayInfo)
 	if err != nil {
 		return err
 	}
@@ -409,9 +410,18 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 }
 
 func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool) (err error) {
+	if relayInfo == nil {
+		return errors.New("relay info is nil")
+	}
+	hasCapturedTeamFunding := relayInfo.BillingSource == BillingSourceTeam && relayInfo.TeamId > 0
+	if relayInfo.BillingSource != BillingSourceSubscription && !hasCapturedTeamFunding {
+		if _, err := ResolveRelayAvailableQuota(relayInfo); err != nil {
+			return err
+		}
+	}
 
 	// 1) Consume from wallet quota OR subscription item
-	if relayInfo != nil && relayInfo.BillingSource == BillingSourceSubscription {
+	if relayInfo.BillingSource == BillingSourceSubscription {
 		if relayInfo.SubscriptionId == 0 {
 			return errors.New("subscription id is missing")
 		}
@@ -421,6 +431,28 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 				return err
 			}
 			relayInfo.SubscriptionPostDelta += delta
+		}
+	} else if relayInfo.BillingSource == BillingSourceTeam {
+		if relayInfo.TeamId <= 0 {
+			return errors.New("team id is missing")
+		}
+		if quota != 0 {
+			if strings.TrimSpace(relayInfo.RequestId) == "" {
+				relayInfo.RequestId = common.GetRandomString(24)
+			}
+			sequence := atomic.AddInt64(&relayInfo.TeamBillingSequence, 1)
+			err = model.ApplyTeamQuotaChange(model.TeamQuotaChange{
+				TeamId:         relayInfo.TeamId,
+				UserId:         relayInfo.UserId,
+				ActorUserId:    relayInfo.UserId,
+				Type:           model.TeamQuotaTypeSettlement,
+				QuotaDelta:     -quota,
+				UsedQuotaDelta: quota,
+				IdempotencyKey: fmt.Sprintf("team:%d:request:%s:legacy:%d", relayInfo.TeamId, relayInfo.RequestId, sequence),
+			})
+			if err != nil {
+				return err
+			}
 		}
 	} else {
 		// Wallet
@@ -445,13 +477,35 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 		}
 	}
 
-	if sendEmail {
+	if sendEmail && (relayInfo == nil || relayInfo.BillingSource == "" || relayInfo.BillingSource == BillingSourceWallet) {
 		if (quota + preConsumedQuota) != 0 {
 			checkAndSendQuotaNotify(relayInfo, quota, preConsumedQuota)
 		}
 	}
 
 	return nil
+}
+
+// ResolveRelayAvailableQuota makes legacy, non-BillingSession relay paths use
+// the same funding rule as normal relays. A team membership always wins over
+// personal wallet/subscription settings and never falls back to personal
+// balance.
+func ResolveRelayAvailableQuota(relayInfo *relaycommon.RelayInfo) (int, error) {
+	if relayInfo == nil {
+		return 0, errors.New("relay info is nil")
+	}
+	teamContext, team, err := model.GetActiveTeamFundingContext(relayInfo.UserId)
+	if err != nil {
+		return 0, err
+	}
+	if teamContext != nil && team != nil {
+		relayInfo.BillingSource = BillingSourceTeam
+		relayInfo.TeamId = team.Id
+		relayInfo.TeamName = team.Name
+		relayInfo.UserQuota = team.Quota
+		return team.Quota, nil
+	}
+	return model.GetUserQuota(relayInfo.UserId, false)
 }
 
 func checkAndSendQuotaNotify(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int) {

@@ -31,13 +31,15 @@ import {
   Settings,
   Ticket,
   User,
+  UserRoundCog,
   Users,
   Wallet,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { type SidebarData } from '@/components/layout/types'
+import type { SidebarData } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -47,6 +49,9 @@ import { ROLE } from '@/lib/roles'
  */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
+  const user = useAuthStore((state) => state.auth.user)
+  const canManageTeams =
+    user?.role === ROLE.SUPER_ADMIN || user?.team?.is_manager === true
 
   return {
     navGroups: [
@@ -103,11 +108,15 @@ export function useSidebarData(): SidebarData {
         id: 'personal',
         title: t('Personal'),
         items: [
-          {
-            title: t('Wallet'),
-            url: '/wallet',
-            icon: Wallet,
-          },
+          ...(user?.team && !user.team.is_manager
+            ? []
+            : [
+                {
+                  title: t('Wallet'),
+                  url: '/wallet',
+                  icon: Wallet,
+                },
+              ]),
           {
             title: t('Profile'),
             url: '/profile',
@@ -115,6 +124,21 @@ export function useSidebarData(): SidebarData {
           },
         ],
       },
+      ...(canManageTeams
+        ? [
+            {
+              id: 'enterprise',
+              title: t('Enterprise'),
+              items: [
+                {
+                  title: t('Team Management'),
+                  url: '/team-management',
+                  icon: UserRoundCog,
+                },
+              ],
+            },
+          ]
+        : []),
       {
         id: 'admin',
         title: t('Admin'),

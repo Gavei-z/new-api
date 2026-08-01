@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/QuantumNous/new-api/model"
@@ -61,6 +62,126 @@ func (w *WalletFunding) Refund() error {
 	// IncreaseUserQuota 是 quota += N 的非幂等操作，不能重试，否则会多退额度。
 	// 订阅的 RefundSubscriptionPreConsume 有 requestId 幂等保护所以可以重试。
 	return model.IncreaseUserQuota(w.userId, w.consumed, false)
+}
+
+// ---------------------------------------------------------------------------
+// TeamFunding — tenant wallet funding source
+// ---------------------------------------------------------------------------
+
+type TeamFunding struct {
+	teamId              int
+	userId              int
+	requestId           string
+	consumed            int
+	reserveSequence     int
+	lastReserveSequence int
+}
+
+func (t *TeamFunding) Source() string { return BillingSourceTeam }
+
+func (t *TeamFunding) key(phase string) string {
+	return fmt.Sprintf("team:%d:request:%s:%s", t.teamId, t.requestId, phase)
+}
+
+func (t *TeamFunding) PreConsume(amount int) error {
+	if amount <= 0 {
+		return nil
+	}
+	err := model.ApplyTeamQuotaChange(model.TeamQuotaChange{
+		TeamId:         t.teamId,
+		UserId:         t.userId,
+		ActorUserId:    t.userId,
+		Type:           model.TeamQuotaTypeConsume,
+		QuotaDelta:     -amount,
+		UsedQuotaDelta: amount,
+		IdempotencyKey: t.key("preconsume"),
+		RequireEnabled: true,
+	})
+	if err != nil {
+		return err
+	}
+	t.consumed = amount
+	return nil
+}
+
+func (t *TeamFunding) Settle(delta int) error {
+	if delta == 0 {
+		return nil
+	}
+	err := model.ApplyTeamQuotaChange(model.TeamQuotaChange{
+		TeamId:         t.teamId,
+		UserId:         t.userId,
+		ActorUserId:    t.userId,
+		Type:           model.TeamQuotaTypeSettlement,
+		QuotaDelta:     -delta,
+		UsedQuotaDelta: delta,
+		IdempotencyKey: t.key("settle"),
+	})
+	if err != nil {
+		return err
+	}
+	t.consumed += delta
+	return nil
+}
+
+func (t *TeamFunding) Refund() error {
+	if t.consumed <= 0 {
+		return nil
+	}
+	return model.ApplyTeamQuotaChange(model.TeamQuotaChange{
+		TeamId:         t.teamId,
+		UserId:         t.userId,
+		ActorUserId:    t.userId,
+		Type:           model.TeamQuotaTypeRefund,
+		QuotaDelta:     t.consumed,
+		UsedQuotaDelta: -t.consumed,
+		IdempotencyKey: t.key("refund"),
+	})
+}
+
+func (t *TeamFunding) Reserve(delta int) error {
+	if delta <= 0 {
+		return nil
+	}
+	t.reserveSequence++
+	sequence := t.reserveSequence
+	err := model.ApplyTeamQuotaChange(model.TeamQuotaChange{
+		TeamId:         t.teamId,
+		UserId:         t.userId,
+		ActorUserId:    t.userId,
+		Type:           model.TeamQuotaTypeConsume,
+		QuotaDelta:     -delta,
+		UsedQuotaDelta: delta,
+		IdempotencyKey: t.key(fmt.Sprintf("reserve:%d", sequence)),
+		RequireEnabled: true,
+	})
+	if err != nil {
+		return err
+	}
+	t.lastReserveSequence = sequence
+	t.consumed += delta
+	return nil
+}
+
+func (t *TeamFunding) RollbackReserve(delta int) error {
+	if delta <= 0 || t.lastReserveSequence <= 0 {
+		return nil
+	}
+	sequence := t.lastReserveSequence
+	err := model.ApplyTeamQuotaChange(model.TeamQuotaChange{
+		TeamId:         t.teamId,
+		UserId:         t.userId,
+		ActorUserId:    t.userId,
+		Type:           model.TeamQuotaTypeRefund,
+		QuotaDelta:     delta,
+		UsedQuotaDelta: -delta,
+		IdempotencyKey: t.key(fmt.Sprintf("reserve:%d:rollback", sequence)),
+	})
+	if err == nil {
+		t.consumed -= delta
+		t.lastReserveSequence = 0
+	}
+	return err
 }
 
 // ---------------------------------------------------------------------------
