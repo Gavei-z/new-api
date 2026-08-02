@@ -19,10 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 /**
  * Application-wide constants
  */
+import uniRoutersLogo from '@/assets/images/uniRouters-logo.png'
 
 // System Configuration Defaults
 export const DEFAULT_SYSTEM_NAME = 'uniRouters'
-export const DEFAULT_LOGO = '/logo.png'
+export const DEFAULT_LOGO = uniRoutersLogo
 
 // LocalStorage Keys
 export const STORAGE_KEYS = {

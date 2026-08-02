@@ -93,8 +93,8 @@ export function mapStatusDataToConfig(
   }
 
   return {
-    systemName: data.system_name || DEFAULT_SYSTEM_NAME,
-    logo: data.logo || DEFAULT_LOGO,
+    systemName: DEFAULT_SYSTEM_NAME,
+    logo: DEFAULT_LOGO,
     footerHtml: data.footer_html,
     demoSiteEnabled: data.demo_site_enabled,
     displayTokenStatEnabled: data.display_token_stat_enabled,
@@ -170,9 +170,9 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
     if (autoLoad) loadConfig()
   }, [autoLoad, loadConfig])
 
-  // Preload logo image when URL changes
+  // The uniRouters brand is fixed and is not overridden by backend settings.
   useEffect(() => {
-    const { logo } = config
+    const logo = DEFAULT_LOGO
 
     // Skip if logo is already loaded
     if (!logo || logo === loadedLogoUrl) return
@@ -194,11 +194,13 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
       }
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.logo, loadedLogoUrl, setLoadedLogoUrl])
+  }, [loadedLogoUrl, setLoadedLogoUrl])
 
   return {
     ...config,
+    systemName: DEFAULT_SYSTEM_NAME,
+    logo: DEFAULT_LOGO,
     loading,
-    logoLoaded: config.logo === loadedLogoUrl && !!loadedLogoUrl,
+    logoLoaded: DEFAULT_LOGO === loadedLogoUrl && !!loadedLogoUrl,
   }
 }

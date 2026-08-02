@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Zap } from 'lucide-react'
 import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -24,6 +23,7 @@ import { PublicLayout } from '@/components/layout'
 import { Footer } from '@/components/layout/components/footer'
 import { RichContent } from '@/components/rich-content'
 import { useTheme } from '@/context/theme-provider'
+import { DEFAULT_LOGO } from '@/lib/constants'
 import { isLikelyHtml } from '@/lib/content-format'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -127,9 +127,11 @@ export function Home() {
       showThemeSwitch
       siteName='uniRouters'
       logo={
-        <span className='flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 via-violet-500 to-cyan-500 text-white shadow-lg shadow-blue-500/30'>
-          <Zap className='size-4 fill-current' />
-        </span>
+        <img
+          src={DEFAULT_LOGO}
+          alt='uniRouters'
+          className='size-8 rounded-lg object-cover'
+        />
       }
       navLinks={[
         { title: 'Models', href: '/models', requiresAuth: true },

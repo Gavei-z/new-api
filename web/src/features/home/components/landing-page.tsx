@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
+import type { TFunction } from 'i18next'
 import {
   ArrowRight,
   BarChart3,
@@ -35,37 +36,38 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import { Stats } from './sections/stats'
 
-const quickStarts = [
-  {
-    value: 'claude-code',
-    label: 'Claude Code',
-    code: `# 1. 安装 Claude Code
+function getQuickStarts(t: TFunction) {
+  return [
+    {
+      value: 'claude-code',
+      label: 'Claude Code',
+      code: `# 1. ${t('Install Claude Code')}
 npm install -g @anthropic-ai/claude-code
 
-# 2. 指向 uniRouters 中转
+# 2. ${t('Route requests through uniRouters')}
 export ANTHROPIC_BASE_URL="https://unirouters.cc"
 export ANTHROPIC_AUTH_TOKEN="sk-one-xxx"
 
-# 3. 启动 · 收工
+# 3. ${t('Start Claude Code')}
 claude`,
-  },
-  {
-    value: 'codex',
-    label: 'Codex',
-    code: `# 1. 安装 Codex CLI
+    },
+    {
+      value: 'codex',
+      label: 'Codex',
+      code: `# 1. ${t('Install Codex CLI')}
 npm install -g @openai/codex
 
-# 2. 指向 uniRouters
+# 2. ${t('Route requests through uniRouters')}
 export OPENAI_BASE_URL="https://unirouters.cc/v1"
 export OPENAI_API_KEY="sk-one-xxx"
 
-# 3. 开干
+# 3. ${t('Start Codex')}
 codex`,
-  },
-  {
-    value: 'python',
-    label: 'Python',
-    code: `from openai import OpenAI
+    },
+    {
+      value: 'python',
+      label: 'Python',
+      code: `from openai import OpenAI
 
 client = OpenAI(base_url="https://unirouters.cc/v1", api_key="sk-one-xxx")
 
@@ -74,11 +76,11 @@ resp = client.chat.completions.create(
     messages=[{"role": "user", "content": "hi"}],
 )
 print(resp.choices[0].message.content)`,
-  },
-  {
-    value: 'node',
-    label: 'Node',
-    code: `import OpenAI from 'openai'
+    },
+    {
+      value: 'node',
+      label: 'Node',
+      code: `import OpenAI from 'openai'
 
 const client = new OpenAI({ apiKey: 'sk-one-xxx', baseURL: 'https://unirouters.cc/v1' })
 
@@ -87,11 +89,11 @@ const res = await client.chat.completions.create({
   messages: [{ role: 'user', content: 'Hi' }],
 })
 console.log(res.choices[0].message.content)`,
-  },
-  {
-    value: 'curl',
-    label: 'curl',
-    code: `curl https://unirouters.cc/v1/chat/completions \\
+    },
+    {
+      value: 'curl',
+      label: 'curl',
+      code: `curl https://unirouters.cc/v1/chat/completions \\
   -H "Authorization: Bearer sk-one-xxx" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -99,8 +101,9 @@ console.log(res.choices[0].message.content)`,
     "messages": [{"role":"user","content":"hi"}],
     "stream": true
   }'`,
-  },
-] as const
+    },
+  ] as const
+}
 
 const features = [
   {
@@ -143,45 +146,54 @@ const features = [
 
 const models = [
   {
-    provider: 'Anthropic',
-    name: 'Claude Opus 4.8',
+    provider: 'OpenAI',
+    name: 'gpt-5.6-sol',
     description:
-      'The most capable Claude model for complex reasoning, deep analysis, and multi-step tasks.',
-    tags: ['Reasoning', 'Analysis'],
-    context: '200K ctx',
-    price: '$15/M in',
-  },
-  {
-    provider: 'Anthropic',
-    name: 'Claude Sonnet 5',
-    description:
-      'An ideal balance of speed and intelligence for everyday production workloads.',
-    tags: ['General', 'Efficient'],
-    context: '200K ctx',
-    price: '$3/M in',
+      "OpenAI's flagship model for complex professional work, advanced reasoning, coding, and long-running agentic tasks.",
+    tags: ['Reasoning', 'Coding'],
+    officialInput: '$5.00',
+    officialOutput: '$30.00',
+    saleInput: '$1.25',
+    saleOutput: '$7.50',
   },
   {
     provider: 'OpenAI',
-    name: 'GPT-5',
+    name: 'gpt-5.6-terra',
     description:
-      'OpenAI’s flagship model with outstanding multimodal understanding.',
-    tags: ['Multimodal', 'Reasoning'],
-    context: '256K ctx',
-    price: '$10/M in',
+      'Balances intelligence and cost for production workloads that need strong reasoning without flagship pricing.',
+    tags: ['General', 'Efficient'],
+    officialInput: '$2.50',
+    officialOutput: '$15.00',
+    saleInput: '$0.625',
+    saleOutput: '$3.75',
   },
   {
     provider: 'Google',
-    name: 'Gemini 3 Pro',
+    name: 'gemini-3.1-pro',
     description:
-      'Native multimodal intelligence paired with an exceptionally long context window.',
-    tags: ['Long context', 'Multimodal'],
-    context: '2000K ctx',
-    price: '$2.5/M in',
+      "Google's preview Pro model for advanced multimodal understanding, agentic workflows, and complex coding tasks.",
+    tags: ['Multimodal', 'Reasoning'],
+    officialInput: '$2.00',
+    officialOutput: '$12.00',
+    saleInput: '$0.40',
+    saleOutput: '$2.40',
+  },
+  {
+    provider: 'Google',
+    name: 'gemini-3.6-flash',
+    description:
+      'A production-ready Flash model that combines speed with strong intelligence for agentic and multimodal workloads.',
+    tags: ['Multimodal', 'Efficient'],
+    officialInput: '$1.50',
+    officialOutput: '$7.50',
+    saleInput: '$0.30',
+    saleOutput: '$1.50',
   },
 ] as const
 
 function Hero() {
   const { t } = useTranslation()
+  const quickStarts = getQuickStarts(t)
 
   return (
     <section className='relative flex min-h-svh items-center overflow-hidden px-4 pt-24 pb-20 sm:px-6'>
@@ -234,7 +246,7 @@ function Hero() {
               <i className='size-3 rounded-full bg-emerald-400' />
             </div>
             <span className='hidden shrink-0 font-mono text-xs text-slate-500 sm:block'>
-              Quick Start
+              {t('footer.columns.docs.links.quickStart')}
             </span>
             <TabsList
               variant='line'
@@ -347,9 +359,41 @@ function ModelShowcase() {
                     </span>
                   ))}
                 </div>
-                <div className='border-border text-muted-foreground mt-5 flex justify-between border-t pt-4 font-mono text-xs'>
-                  <span>{model.context}</span>
-                  <span className='text-foreground'>{model.price}</span>
+                <div className='border-border mt-5 border-t pt-4'>
+                  <div className='space-y-3 font-mono'>
+                    <div className='flex items-center justify-between gap-3'>
+                      <div className='text-muted-foreground text-[10px] tracking-wider uppercase'>
+                        {t('Input')}
+                      </div>
+                      <div className='flex items-baseline justify-end gap-1.5 text-xs'>
+                        <del className='text-muted-foreground'>
+                          {model.officialInput}
+                        </del>
+                        <strong className='text-sm font-semibold text-emerald-500'>
+                          {model.saleInput}
+                          <span className='text-muted-foreground ml-1 text-[10px] font-normal'>
+                            /M tokens
+                          </span>
+                        </strong>
+                      </div>
+                    </div>
+                    <div className='flex items-center justify-between gap-3'>
+                      <div className='text-muted-foreground text-[10px] tracking-wider uppercase'>
+                        {t('Output')}
+                      </div>
+                      <div className='flex items-baseline justify-end gap-1.5 text-xs'>
+                        <del className='text-muted-foreground'>
+                          {model.officialOutput}
+                        </del>
+                        <strong className='text-sm font-semibold text-emerald-500'>
+                          {model.saleOutput}
+                          <span className='text-muted-foreground ml-1 text-[10px] font-normal'>
+                            /M tokens
+                          </span>
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </article>
             </AnimateInView>
@@ -403,11 +447,6 @@ function CallToAction(props: { isAuthenticated: boolean }) {
               {t('View pricing')}
             </Link>
           </div>
-          <p className='text-muted-foreground mt-6 text-xs'>
-            {t(
-              'No credit card · 10K tokens every month · Upgrade whenever you need'
-            )}
-          </p>
         </div>
       </AnimateInView>
     </section>

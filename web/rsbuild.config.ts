@@ -64,6 +64,7 @@ export default defineConfig(({ envMode }) => {
     },
     html: {
       template: './index.html',
+      favicon: './src/assets/images/uniRouters-logo.png',
     },
     server: {
       host: '0.0.0.0',
