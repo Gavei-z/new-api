@@ -20,10 +20,19 @@ For commercial licensing, please contact support@quantumnous.com
  * Home page constants
  * All hardcoded data for home page sections
  */
-import { type TFunction } from 'i18next'
+import type { TFunction } from 'i18next'
+
+import { UNIROUTERS_DOCS_PATH } from '@/features/docs/constants'
 
 // Layout - Main base classes
 export const MAIN_BASE_CLASSES = 'bg-background text-foreground w-full'
+
+export const UNIROUTERS_HOME_DOCS_PATH = UNIROUTERS_DOCS_PATH
+export const UNIROUTERS_HOME_NAV_LINKS = [
+  { title: 'Models', href: '/models', requiresAuth: true },
+  { title: 'Pricing', href: '/pricing' },
+  { title: 'Docs', href: UNIROUTERS_HOME_DOCS_PATH },
+]
 
 // Hero section - AI Applications (Left side)
 export const AI_APPLICATIONS = [

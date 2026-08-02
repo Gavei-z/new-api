@@ -28,6 +28,7 @@ import { isLikelyHtml } from '@/lib/content-format'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { LandingPage } from './components/landing-page'
+import { UNIROUTERS_HOME_NAV_LINKS } from './constants'
 import { useHomePageContent } from './hooks'
 
 export function Home() {
@@ -133,15 +134,7 @@ export function Home() {
           className='size-8 rounded-lg object-cover'
         />
       }
-      navLinks={[
-        { title: 'Models', href: '/models', requiresAuth: true },
-        { title: 'Pricing', href: '/pricing' },
-        {
-          title: 'Docs',
-          href: 'https://docs.newapi.pro',
-          external: true,
-        },
-      ]}
+      navLinks={UNIROUTERS_HOME_NAV_LINKS}
     >
       <LandingPage isAuthenticated={isAuthenticated} />
       <Footer

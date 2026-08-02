@@ -34,6 +34,7 @@ import { useTranslation } from 'react-i18next'
 import { AnimateInView } from '@/components/animate-in-view'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
+import { UNIROUTERS_HOME_DOCS_PATH } from '../constants'
 import { Stats } from './sections/stats'
 
 function getQuickStarts(t: TFunction) {
@@ -226,14 +227,12 @@ function Hero() {
             {t('Start for free')}
             <ArrowRight className='size-4 transition-transform group-hover:translate-x-1' />
           </Link>
-          <a
-            href='https://docs.newapi.pro'
-            target='_blank'
-            rel='noopener noreferrer'
+          <Link
+            to={UNIROUTERS_HOME_DOCS_PATH}
             className='border-border bg-background/60 text-foreground inline-flex h-12 items-center justify-center rounded-xl border px-6 text-sm font-semibold shadow-sm transition hover:border-blue-500/60 hover:bg-blue-500/5 hover:text-blue-600 dark:hover:text-blue-300'
           >
             {t('View documentation')}
-          </a>
+          </Link>
         </div>
         <Tabs
           defaultValue='claude-code'
