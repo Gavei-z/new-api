@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -237,6 +238,8 @@ func (s *BillingSession) reserveFunding(delta int) error {
 		}
 		funding.consumed += delta
 		return nil
+	case *TeamFunding:
+		return funding.Reserve(delta)
 	case *SubscriptionFunding:
 		if err := model.PostConsumeUserSubscriptionDelta(funding.subscriptionId, int64(delta)); err != nil {
 			return types.NewErrorWithStatusCode(
@@ -260,6 +263,10 @@ func (s *BillingSession) rollbackFundingReserve(delta int) {
 			common.SysLog("error rolling back wallet funding reserve: " + err.Error())
 		} else {
 			funding.consumed -= delta
+		}
+	case *TeamFunding:
+		if err := funding.RollbackReserve(delta); err != nil {
+			common.SysLog("error rolling back team funding reserve: " + err.Error())
 		}
 	case *SubscriptionFunding:
 		if err := model.PostConsumeUserSubscriptionDelta(funding.subscriptionId, -int64(delta)); err != nil {
@@ -303,6 +310,10 @@ func (s *BillingSession) shouldTrust(c *gin.Context) bool {
 	switch s.funding.Source() {
 	case BillingSourceWallet:
 		return s.relayInfo.UserQuota > trustQuota
+	case BillingSourceTeam:
+		// Shared tenant balances are always pre-consumed atomically. Trusting a
+		// cached balance would allow concurrent members to overspend.
+		return false
 	case BillingSourceSubscription:
 		// 订阅不能启用信任旁路。原因：
 		// 1. PreConsumeUserSubscription 要求 amount>0 来创建预扣记录并锁定订阅
@@ -342,6 +353,51 @@ func (s *BillingSession) syncRelayInfo() {
 func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preConsumedQuota int) (*BillingSession, *types.NewAPIError) {
 	if relayInfo == nil {
 		return nil, types.NewError(fmt.Errorf("relayInfo is nil"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+
+	teamContext, team, teamErr := model.GetActiveTeamFundingContext(relayInfo.UserId)
+	if teamErr != nil {
+		status := http.StatusForbidden
+		code := types.ErrorCodeInsufficientUserQuota
+		if !errors.Is(teamErr, model.ErrTeamDisabled) {
+			code = types.ErrorCodeQueryDataError
+		}
+		return nil, types.NewErrorWithStatusCode(
+			teamErr,
+			code,
+			status,
+			types.ErrOptionWithSkipRetry(),
+			types.ErrOptionWithNoRecordErrorLog(),
+		)
+	}
+	if teamContext != nil && team != nil {
+		if team.Quota < preConsumedQuota {
+			return nil, types.NewErrorWithStatusCode(
+				fmt.Errorf("团队额度不足, 剩余额度: %s, 需要预扣费额度: %s", logger.FormatQuota(team.Quota), logger.FormatQuota(preConsumedQuota)),
+				types.ErrorCodeInsufficientUserQuota,
+				http.StatusForbidden,
+				types.ErrOptionWithSkipRetry(),
+				types.ErrOptionWithNoRecordErrorLog(),
+			)
+		}
+		if strings.TrimSpace(relayInfo.RequestId) == "" {
+			relayInfo.RequestId = common.GetRandomString(24)
+		}
+		relayInfo.TeamId = team.Id
+		relayInfo.TeamName = team.Name
+		relayInfo.UserQuota = team.Quota
+		session := &BillingSession{
+			relayInfo: relayInfo,
+			funding: &TeamFunding{
+				teamId:    team.Id,
+				userId:    relayInfo.UserId,
+				requestId: relayInfo.RequestId,
+			},
+		}
+		if apiErr := session.preConsume(c, preConsumedQuota); apiErr != nil {
+			return nil, apiErr
+		}
+		return session, nil
 	}
 
 	pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)

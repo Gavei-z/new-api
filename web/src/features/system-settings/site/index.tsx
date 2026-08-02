@@ -29,7 +29,6 @@ const defaultSiteSettings: SiteSettings = {
   SystemName: 'uniRouters',
   Logo: '',
   Footer: '',
-  About: '',
   HomePageContent: '',
   ServerAddress: '',
   'legal.user_agreement': '',

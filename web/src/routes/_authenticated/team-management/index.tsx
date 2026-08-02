@@ -16,11 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { api } from '@/lib/api'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import type { AboutResponse } from './types'
+import { Teams } from '@/features/teams'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
-export async function getAboutContent() {
-  const res = await api.get<AboutResponse>('/api/about')
-  return res.data
-}
+export const Route = createFileRoute('/_authenticated/team-management/')({
+  beforeLoad: () => {
+    const { auth } = useAuthStore.getState()
+    const canManage =
+      auth.user?.role === ROLE.SUPER_ADMIN ||
+      auth.user?.team?.is_manager === true
+
+    if (!canManage) {
+      throw redirect({ to: '/403' })
+    }
+  },
+  component: Teams,
+})

@@ -2,5 +2,10 @@
   "uniRouters &lt;noreply@example.com&gt;": "uniRouters &lt;noreply@example.com&gt;",
   "New API": "uniRouters",
   "New API &lt;noreply@example.com&gt;": "uniRouters &lt;noreply@example.com&gt;",
-  "NewAPI": "uniRouters"
+  "NewAPI": "uniRouters",
+  "docs.agents.codex.title": "Codex CLI",
+  "docs.agents.claudeCode.title": "Claude Code",
+  "docs.reference.responses.title": "Responses API",
+  "docs.reference.chat.title": "Chat Completions",
+  "docs.reference.messages.title": "Claude Messages"
 }
