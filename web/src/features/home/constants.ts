@@ -34,6 +34,11 @@ export const UNIROUTERS_HOME_NAV_LINKS = [
   { title: 'Docs', href: UNIROUTERS_HOME_DOCS_PATH },
 ]
 
+export const UNIROUTERS_HOME_HERO_COPY = {
+  taglineKey: 'One integration for every leading AI model',
+  headlineKey: 'One Unified Gateway for Multi Models.',
+} as const
+
 // Hero section - AI Applications (Left side)
 export const AI_APPLICATIONS = [
   'LobeHub.Color',

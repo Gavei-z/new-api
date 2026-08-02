@@ -34,7 +34,10 @@ import { useTranslation } from 'react-i18next'
 import { AnimateInView } from '@/components/animate-in-view'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-import { UNIROUTERS_HOME_DOCS_PATH } from '../constants'
+import {
+  UNIROUTERS_HOME_DOCS_PATH,
+  UNIROUTERS_HOME_HERO_COPY,
+} from '../constants'
 import { Stats } from './sections/stats'
 
 function getQuickStarts(t: TFunction) {
@@ -206,12 +209,12 @@ function Hero() {
       <div className='relative mx-auto flex w-full max-w-4xl flex-col items-center text-center'>
         <div className='home-hero-in home-delay-1 border-border bg-card/70 text-muted-foreground mb-7 inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs shadow-sm backdrop-blur'>
           <Zap className='size-3.5 text-blue-400' />
-          {t('One integration for every leading AI model')}
+          {t(UNIROUTERS_HOME_HERO_COPY.taglineKey)}
         </div>
         <h1 className='home-hero-in home-delay-2 text-4xl leading-[1.05] font-black tracking-[-0.05em] sm:text-5xl md:text-7xl'>
           <span className='home-gradient-text'>uniRouters</span>
           <span className='text-foreground mt-2 block'>
-            One Unified Gateway for Multi Models.
+            {t(UNIROUTERS_HOME_HERO_COPY.headlineKey)}
           </span>
         </h1>
         <p className='home-hero-in home-delay-3 text-muted-foreground mt-7 max-w-2xl text-base leading-8 sm:text-xl'>
