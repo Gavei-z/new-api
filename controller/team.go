@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/mail"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -574,6 +576,24 @@ func CreateEnterpriseInquiry(c *gin.Context) {
 	if err := model.CreateEnterpriseInquiry(inquiry); err != nil {
 		writeTeamError(c, err)
 		return
+	}
+	notificationReceiver := service.EnterpriseInquiryNotificationReceiver()
+	if notificationReceiver != "" {
+		inquiryForNotification := *inquiry
+		go func() {
+			if err := service.SendEnterpriseInquiryNotification(inquiryForNotification, notificationReceiver); err != nil {
+				common.SysError(fmt.Sprintf(
+					"failed to send enterprise inquiry notification (inquiry_id=%d): %v",
+					inquiryForNotification.Id,
+					err,
+				))
+				return
+			}
+			common.SysLog(fmt.Sprintf(
+				"enterprise inquiry notification sent (inquiry_id=%d)",
+				inquiryForNotification.Id,
+			))
+		}()
 	}
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
