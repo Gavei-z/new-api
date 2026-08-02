@@ -21,28 +21,21 @@ import { describe, test } from 'node:test'
 
 import englishMessages from '../../../i18n/locales/en.json'
 import chineseMessages from '../../../i18n/locales/zh.json'
-import { UNIROUTERS_HOME_HERO_COPY } from '../constants'
+import {
+  ENTERPRISE_INVOICE_COPY_KEY,
+  ENTERPRISE_QUOTE_BENEFITS,
+} from '../constants'
 
-describe('uniRouters home hero copy', () => {
-  test('keeps the English hero copy polished and unchanged by Chinese localization', () => {
+describe('enterprise invoice copy', () => {
+  test('shows corporate invoicing support in English and Chinese', () => {
+    assert.ok(ENTERPRISE_QUOTE_BENEFITS.includes(ENTERPRISE_INVOICE_COPY_KEY))
     assert.equal(
-      englishMessages.translation[UNIROUTERS_HOME_HERO_COPY.taglineKey],
-      'The Foundation for AI Agents'
+      englishMessages.translation[ENTERPRISE_INVOICE_COPY_KEY],
+      'Corporate invoicing supported'
     )
     assert.equal(
-      englishMessages.translation[UNIROUTERS_HOME_HERO_COPY.headlineKey],
-      'One Unified Gateway for Multi Models.'
-    )
-  })
-
-  test('uses the requested Chinese hero copy', () => {
-    assert.equal(
-      chineseMessages.translation[UNIROUTERS_HOME_HERO_COPY.taglineKey],
-      '为AI智能体提供统一基座'
-    )
-    assert.equal(
-      chineseMessages.translation[UNIROUTERS_HOME_HERO_COPY.headlineKey],
-      '一个网关key，使用多种主流模型。'
+      chineseMessages.translation[ENTERPRISE_INVOICE_COPY_KEY],
+      '支持对公开票'
     )
   })
 })

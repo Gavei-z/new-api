@@ -39,6 +39,34 @@ export const UNIROUTERS_HOME_HERO_COPY = {
   headlineKey: 'One Unified Gateway for Multi Models.',
 } as const
 
+export const UNIROUTERS_HOME_FAQS = [
+  {
+    questionKey: 'How do I use UniRouters?',
+    answerKey:
+      'After installing Node.js and the official Claude Code or Codex CLI, simply configure your API key and API base URL in the terminal. You can also call UniRouters directly from Python, JavaScript, or curl.',
+  },
+  {
+    questionKey: 'Why is it so cheap?',
+    answerKey:
+      'We buy at wholesale rates and operate at scale, keeping costs low without hidden tricks.',
+  },
+  {
+    questionKey: 'Does UniRouters support cache reads?',
+    answerKey:
+      'Yes. Cache reads are supported. When usage is calculated, input tokens served from cache are multiplied by a discount factor, so they consume less credit.',
+  },
+  {
+    questionKey: 'How can I request an invoice?',
+    answerKey:
+      'If your cumulative personal spending exceeds USD 40, or your enterprise service spending exceeds USD 70, we can issue an invoice. Standard invoices are available, special VAT invoices can be arranged, and bank transfers are supported.',
+  },
+  {
+    questionKey: 'What if I do not use all of my credit?',
+    answerKey:
+      'You can share API access with friends or team members by creating separate API keys under one account. UniRouters supports multiple API keys per account.',
+  },
+] as const
+
 // Hero section - AI Applications (Left side)
 export const AI_APPLICATIONS = [
   'LobeHub.Color',

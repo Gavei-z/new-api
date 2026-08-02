@@ -53,6 +53,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { createEnterpriseInquiry } from '@/features/teams/api'
 import { getErrorMessage } from '@/features/teams/lib'
 
+import { ENTERPRISE_QUOTE_BENEFITS } from './constants'
+
 const inquirySchema = z
   .object({
     company_name: z.string().trim().min(2).max(120),
@@ -595,11 +597,7 @@ export function Enterprise() {
                   )}
                 </p>
                 <div className='mt-8 space-y-3 text-sm'>
-                  {[
-                    'Shared team funding and auditable billing',
-                    'Member-level usage visibility',
-                    'Dedicated team workspace',
-                  ].map((item) => (
+                  {ENTERPRISE_QUOTE_BENEFITS.map((item) => (
                     <div key={item} className='flex items-center gap-2'>
                       <Check className='size-4 text-emerald-600' />
                       {t(item)}

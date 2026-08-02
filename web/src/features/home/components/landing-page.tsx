@@ -38,6 +38,7 @@ import {
   UNIROUTERS_HOME_DOCS_PATH,
   UNIROUTERS_HOME_HERO_COPY,
 } from '../constants'
+import { FaqSection } from './faq-section'
 import { Stats } from './sections/stats'
 
 function getQuickStarts(t: TFunction) {
@@ -463,6 +464,7 @@ export function LandingPage(props: { isAuthenticated: boolean }) {
       <FeatureGrid />
       <ModelShowcase />
       <CallToAction isAuthenticated={props.isAuthenticated} />
+      <FaqSection />
     </div>
   )
 }
