@@ -174,6 +174,8 @@ export const STATIC_I18N_KEYS = [
   'Professional team providing 24/7 technical support',
   'One integration for every leading AI model',
   'One Unified Gateway for Multi Models.',
+  "OpenAI's latest image generation and editing model for fast, high-quality output and flexible resolutions.",
+  'Image output',
   'How do I use UniRouters?',
   'After installing Node.js and the official Claude Code or Codex CLI, simply configure your API key and API base URL in the terminal. You can also call UniRouters directly from Python, JavaScript, or curl.',
   'Why is it so cheap?',

@@ -156,10 +156,18 @@ const models = [
     description:
       "OpenAI's flagship model for complex professional work, advanced reasoning, coding, and long-running agentic tasks.",
     tags: ['Reasoning', 'Coding'],
-    officialInput: '$5.00',
-    officialOutput: '$30.00',
-    saleInput: '$1.25',
-    saleOutput: '$7.50',
+    prices: [
+      {
+        label: 'Input',
+        official: '$5.00',
+        sale: '$1.25',
+      },
+      {
+        label: 'Output',
+        official: '$30.00',
+        sale: '$7.50',
+      },
+    ],
   },
   {
     provider: 'OpenAI',
@@ -167,10 +175,42 @@ const models = [
     description:
       'Balances intelligence and cost for production workloads that need strong reasoning without flagship pricing.',
     tags: ['General', 'Efficient'],
-    officialInput: '$2.50',
-    officialOutput: '$15.00',
-    saleInput: '$0.625',
-    saleOutput: '$3.75',
+    prices: [
+      {
+        label: 'Input',
+        official: '$2.50',
+        sale: '$0.625',
+      },
+      {
+        label: 'Output',
+        official: '$15.00',
+        sale: '$3.75',
+      },
+    ],
+  },
+  {
+    provider: 'OpenAI',
+    name: 'gpt-image-2',
+    description:
+      "OpenAI's latest image generation and editing model for fast, high-quality output and flexible resolutions.",
+    tags: ['Image', 'Multimodal'],
+    prices: [
+      {
+        label: 'Text Input',
+        official: '$5.00',
+        sale: '$1.00',
+      },
+      {
+        label: 'Image input',
+        official: '$8.00',
+        sale: '$1.60',
+      },
+      {
+        label: 'Image output',
+        official: '$30.00',
+        sale: '$6.00',
+      },
+    ],
   },
   {
     provider: 'Google',
@@ -178,10 +218,18 @@ const models = [
     description:
       "Google's preview Pro model for advanced multimodal understanding, agentic workflows, and complex coding tasks.",
     tags: ['Multimodal', 'Reasoning'],
-    officialInput: '$2.00',
-    officialOutput: '$12.00',
-    saleInput: '$0.40',
-    saleOutput: '$2.40',
+    prices: [
+      {
+        label: 'Input',
+        official: '$2.00',
+        sale: '$0.40',
+      },
+      {
+        label: 'Output',
+        official: '$12.00',
+        sale: '$2.40',
+      },
+    ],
   },
   {
     provider: 'Google',
@@ -189,10 +237,18 @@ const models = [
     description:
       'A production-ready Flash model that combines speed with strong intelligence for agentic and multimodal workloads.',
     tags: ['Multimodal', 'Efficient'],
-    officialInput: '$1.50',
-    officialOutput: '$7.50',
-    saleInput: '$0.30',
-    saleOutput: '$1.50',
+    prices: [
+      {
+        label: 'Input',
+        official: '$1.50',
+        sale: '$0.30',
+      },
+      {
+        label: 'Output',
+        official: '$7.50',
+        sale: '$1.50',
+      },
+    ],
   },
 ] as const
 
@@ -322,6 +378,70 @@ function FeatureGrid() {
   )
 }
 
+export function ModelCardsGrid() {
+  const { t } = useTranslation()
+
+  return (
+    <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5'>
+      {models.map((model, index) => (
+        <AnimateInView key={model.name} delay={index * 100}>
+          <article className='border-border bg-card flex h-full min-h-72 cursor-default flex-col rounded-2xl border p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:border-blue-500/50 hover:shadow-lg'>
+            <div className='flex items-center gap-2 text-xs font-medium text-blue-400'>
+              <Sparkles className='size-4' aria-hidden='true' />
+              {model.provider}
+            </div>
+            <h3 className='text-foreground mt-4 text-lg font-semibold'>
+              {model.name}
+            </h3>
+            <p className='text-muted-foreground mt-2 flex-1 text-sm leading-6'>
+              {t(model.description)}
+            </p>
+            <div className='mt-5 flex flex-wrap gap-2'>
+              {model.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className='rounded-full border border-blue-400/20 bg-blue-500/10 px-2.5 py-1 text-[11px] text-blue-300'
+                >
+                  {t(tag)}
+                </span>
+              ))}
+            </div>
+            <div className='border-border mt-5 border-t pt-4'>
+              <div className='text-muted-foreground mb-3 flex items-center justify-between gap-3 text-[10px] tracking-wider uppercase'>
+                <span>{t('Our price')}</span>
+                <span>{t('Per 1M tokens')}</span>
+              </div>
+              <dl className='space-y-2.5 font-mono'>
+                {model.prices.map((price) => (
+                  <div
+                    key={price.label}
+                    className='grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3'
+                  >
+                    <dt className='text-muted-foreground truncate text-[10px] tracking-wider uppercase'>
+                      {t(price.label)}
+                    </dt>
+                    <dd className='flex items-baseline justify-end gap-1.5 text-xs'>
+                      <del
+                        className='text-muted-foreground'
+                        title={t('Official price')}
+                      >
+                        {price.official}
+                      </del>
+                      <strong className='text-sm font-semibold text-emerald-500'>
+                        {price.sale}
+                      </strong>
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          </article>
+        </AnimateInView>
+      ))}
+    </div>
+  )
+}
+
 function ModelShowcase() {
   const { t } = useTranslation()
 
@@ -338,70 +458,7 @@ function ModelShowcase() {
             )}
           </p>
         </AnimateInView>
-        <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-4'>
-          {models.map((model, index) => (
-            <AnimateInView key={model.name} delay={index * 100}>
-              <article className='border-border bg-card flex h-full min-h-64 cursor-default flex-col rounded-2xl border p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:border-blue-500/50 hover:shadow-lg'>
-                <div className='flex items-center gap-2 text-xs font-medium text-blue-400'>
-                  <Sparkles className='size-4' />
-                  {model.provider}
-                </div>
-                <h3 className='text-foreground mt-4 text-lg font-semibold'>
-                  {model.name}
-                </h3>
-                <p className='text-muted-foreground mt-2 flex-1 text-sm leading-6'>
-                  {t(model.description)}
-                </p>
-                <div className='mt-5 flex flex-wrap gap-2'>
-                  {model.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className='rounded-full border border-blue-400/20 bg-blue-500/10 px-2.5 py-1 text-[11px] text-blue-300'
-                    >
-                      {t(tag)}
-                    </span>
-                  ))}
-                </div>
-                <div className='border-border mt-5 border-t pt-4'>
-                  <div className='space-y-3 font-mono'>
-                    <div className='flex items-center justify-between gap-3'>
-                      <div className='text-muted-foreground text-[10px] tracking-wider uppercase'>
-                        {t('Input')}
-                      </div>
-                      <div className='flex items-baseline justify-end gap-1.5 text-xs'>
-                        <del className='text-muted-foreground'>
-                          {model.officialInput}
-                        </del>
-                        <strong className='text-sm font-semibold text-emerald-500'>
-                          {model.saleInput}
-                          <span className='text-muted-foreground ml-1 text-[10px] font-normal'>
-                            /M tokens
-                          </span>
-                        </strong>
-                      </div>
-                    </div>
-                    <div className='flex items-center justify-between gap-3'>
-                      <div className='text-muted-foreground text-[10px] tracking-wider uppercase'>
-                        {t('Output')}
-                      </div>
-                      <div className='flex items-baseline justify-end gap-1.5 text-xs'>
-                        <del className='text-muted-foreground'>
-                          {model.officialOutput}
-                        </del>
-                        <strong className='text-sm font-semibold text-emerald-500'>
-                          {model.saleOutput}
-                          <span className='text-muted-foreground ml-1 text-[10px] font-normal'>
-                            /M tokens
-                          </span>
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </article>
-            </AnimateInView>
-          ))}
-        </div>
+        <ModelCardsGrid />
         <div className='mt-10 text-center'>
           <Link
             to='/models'
