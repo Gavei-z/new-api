@@ -16,13 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type TFunction } from 'i18next'
+import type { TFunction } from 'i18next'
 
 import type { TokenUnit } from './types'
 
 // ----------------------------------------------------------------------------
 // Pricing Constants
 // ----------------------------------------------------------------------------
+
+/** User-facing title used for the public pricing navigation entry. */
+export const PRICING_NAV_TITLE_KEY = 'Pricing'
 
 /** Sort options for pricing models */
 export const SORT_OPTIONS = {

@@ -20,6 +20,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { UNIROUTERS_DOCS_PATH } from '@/features/docs/constants'
+import { PRICING_NAV_TITLE_KEY } from '@/features/pricing/constants'
 import { useStatus } from '@/hooks/use-status'
 import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
 import { useAuthStore } from '@/stores/auth-store'
@@ -72,7 +73,11 @@ export function useTopNavLinks(): TopNavLink[] {
   const pricing = modules?.pricing
   if (pricing && typeof pricing === 'object' && pricing.enabled) {
     const requiresAuth = pricing.requireAuth && !isAuthed
-    links.push({ title: t('Model Square'), href: '/pricing', requiresAuth })
+    links.push({
+      title: t(PRICING_NAV_TITLE_KEY),
+      href: '/pricing',
+      requiresAuth,
+    })
   }
 
   // Docs

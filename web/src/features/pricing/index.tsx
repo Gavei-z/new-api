@@ -31,6 +31,7 @@ import {
   PricingToolbar,
   ModelCardGrid,
   ModelDetailsDrawer,
+  PricingOverview,
 } from './components'
 import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
 import { useFilters } from './hooks/use-filters'
@@ -148,16 +149,6 @@ export function Pricing() {
     )
   }
 
-  if (isLoading) {
-    return (
-      <PublicLayout showMainContainer={false}>
-        <div className='mx-auto w-full max-w-[1800px] px-3 pt-16 pb-8 sm:px-6 sm:pt-20 sm:pb-10 xl:px-8'>
-          <LoadingSkeleton viewMode={viewMode} />
-        </div>
-      </PublicLayout>
-    )
-  }
-
   return (
     <PublicLayout showMainContainer={false}>
       <div className='relative'>
@@ -177,111 +168,131 @@ export function Pricing() {
           }}
         />
         <PageTransition className='relative mx-auto w-full max-w-[1800px] px-3 pt-16 pb-8 sm:px-6 sm:pt-20 sm:pb-10 xl:px-8'>
-          <header className='mx-auto mb-5 max-w-3xl pt-5 text-center sm:mb-10 sm:pt-10'>
-            <h1 className='text-[clamp(2rem,5.5vw,3.5rem)] leading-[1.15] font-bold tracking-tight'>
-              {t('Model Square')}
-            </h1>
-            <p className='text-muted-foreground/80 mt-3 text-sm sm:mt-4 sm:text-base'>
-              {t('This site currently has {{count}} models enabled', {
-                count: models?.length || 0,
-              })}
-            </p>
-            <p className='text-muted-foreground/60 mx-auto mt-2 max-w-2xl text-xs leading-relaxed sm:text-sm'>
-              {t(
-                'Discover curated AI models, compare pricing and capabilities, and choose the right model for every scenario.'
+          <PricingOverview />
+
+          <section
+            aria-labelledby='model-pricing-title'
+            className='mt-16 border-t pt-14 sm:mt-20 sm:pt-18'
+          >
+            <header className='mx-auto mb-6 max-w-3xl text-center sm:mb-10'>
+              <h2
+                id='model-pricing-title'
+                className='text-[clamp(2rem,5vw,3.25rem)] leading-[1.15] font-bold tracking-tight'
+              >
+                {t('Model prices')}
+              </h2>
+              {!isLoading && (
+                <p className='text-muted-foreground/80 mt-3 text-sm sm:mt-4 sm:text-base'>
+                  {t('This site currently has {{count}} models enabled', {
+                    count: models?.length || 0,
+                  })}
+                </p>
               )}
-            </p>
-            <SearchBar
-              value={searchInput}
-              onChange={setSearchInput}
-              onClear={clearSearch}
-              placeholder={t(
-                'Search model name, provider, endpoint, or tag...'
+              <p className='text-muted-foreground/60 mx-auto mt-2 max-w-2xl text-xs leading-relaxed sm:text-sm'>
+                {t(
+                  'The live rates below are the exact prices deducted from your wallet, with no additional platform fee.'
+                )}
+              </p>
+              {!isLoading && (
+                <SearchBar
+                  value={searchInput}
+                  onChange={setSearchInput}
+                  onClear={clearSearch}
+                  placeholder={t(
+                    'Search model name, provider, endpoint, or tag...'
+                  )}
+                  className='mx-auto mt-4 max-w-2xl sm:mt-6'
+                />
               )}
-              className='mx-auto mt-4 max-w-2xl sm:mt-6'
-            />
-          </header>
+            </header>
 
-          <div className='grid gap-4 xl:grid-cols-[330px_minmax(0,1fr)]'>
-            <PricingSidebar
-              quotaTypeFilter={quotaTypeFilter}
-              endpointTypeFilter={endpointTypeFilter}
-              vendorFilter={vendorFilter}
-              groupFilter={groupFilter}
-              tagFilter={tagFilter}
-              onQuotaTypeChange={setQuotaTypeFilter}
-              onEndpointTypeChange={setEndpointTypeFilter}
-              onVendorChange={setVendorFilter}
-              onGroupChange={setGroupFilter}
-              onTagChange={setTagFilter}
-              vendors={vendors || []}
-              groups={availableGroups}
-              groupRatios={groupRatio}
-              tags={availableTags}
-              models={models || []}
-              hasActiveFilters={hasActiveFilters}
-              onClearFilters={clearFilters}
-              className='hover-scrollbar sticky top-4 hidden max-h-[calc(100dvh-2rem)] self-start overflow-y-auto xl:block'
-            />
+            {isLoading ? (
+              <LoadingSkeleton viewMode={viewMode} />
+            ) : (
+              <>
+                <div className='grid gap-4 xl:grid-cols-[330px_minmax(0,1fr)]'>
+                  <PricingSidebar
+                    quotaTypeFilter={quotaTypeFilter}
+                    endpointTypeFilter={endpointTypeFilter}
+                    vendorFilter={vendorFilter}
+                    groupFilter={groupFilter}
+                    tagFilter={tagFilter}
+                    onQuotaTypeChange={setQuotaTypeFilter}
+                    onEndpointTypeChange={setEndpointTypeFilter}
+                    onVendorChange={setVendorFilter}
+                    onGroupChange={setGroupFilter}
+                    onTagChange={setTagFilter}
+                    vendors={vendors || []}
+                    groups={availableGroups}
+                    groupRatios={groupRatio}
+                    tags={availableTags}
+                    models={models || []}
+                    hasActiveFilters={hasActiveFilters}
+                    onClearFilters={clearFilters}
+                    className='hover-scrollbar sticky top-4 hidden max-h-[calc(100dvh-2rem)] self-start overflow-y-auto xl:block'
+                  />
 
-            <main className='min-w-0 space-y-4'>
-              <PricingToolbar
-                filteredCount={filteredModels.length}
-                totalCount={models?.length}
-                sortBy={sortBy}
-                onSortChange={setSortBy}
-                tokenUnit={tokenUnit}
-                onTokenUnitChange={setTokenUnit}
-                showRechargePrice={showRechargePrice}
-                onRechargePriceChange={setShowRechargePrice}
-                viewMode={viewMode}
-                onViewModeChange={setViewMode}
-                quotaTypeFilter={quotaTypeFilter}
-                endpointTypeFilter={endpointTypeFilter}
-                vendorFilter={vendorFilter}
-                groupFilter={groupFilter}
-                tagFilter={tagFilter}
-                onQuotaTypeChange={setQuotaTypeFilter}
-                onEndpointTypeChange={setEndpointTypeFilter}
-                onVendorChange={setVendorFilter}
-                onGroupChange={setGroupFilter}
-                onTagChange={setTagFilter}
-                vendors={vendors || []}
-                groups={availableGroups}
-                groupRatios={groupRatio}
-                tags={availableTags}
-                models={models || []}
-                hasActiveFilters={hasActiveFilters}
-                activeFilterCount={activeFilterCount}
-                onClearFilters={clearFilters}
-              />
+                  <main className='min-w-0 space-y-4'>
+                    <PricingToolbar
+                      filteredCount={filteredModels.length}
+                      totalCount={models?.length}
+                      sortBy={sortBy}
+                      onSortChange={setSortBy}
+                      tokenUnit={tokenUnit}
+                      onTokenUnitChange={setTokenUnit}
+                      showRechargePrice={showRechargePrice}
+                      onRechargePriceChange={setShowRechargePrice}
+                      viewMode={viewMode}
+                      onViewModeChange={setViewMode}
+                      quotaTypeFilter={quotaTypeFilter}
+                      endpointTypeFilter={endpointTypeFilter}
+                      vendorFilter={vendorFilter}
+                      groupFilter={groupFilter}
+                      tagFilter={tagFilter}
+                      onQuotaTypeChange={setQuotaTypeFilter}
+                      onEndpointTypeChange={setEndpointTypeFilter}
+                      onVendorChange={setVendorFilter}
+                      onGroupChange={setGroupFilter}
+                      onTagChange={setTagFilter}
+                      vendors={vendors || []}
+                      groups={availableGroups}
+                      groupRatios={groupRatio}
+                      tags={availableTags}
+                      models={models || []}
+                      hasActiveFilters={hasActiveFilters}
+                      activeFilterCount={activeFilterCount}
+                      onClearFilters={clearFilters}
+                    />
 
-              {renderPricingContent()}
-            </main>
-          </div>
+                    {renderPricingContent()}
+                  </main>
+                </div>
 
-          {selectedModel && (
-            <ModelDetailsDrawer
-              open={Boolean(selectedModel)}
-              onOpenChange={(open) => {
-                if (!open) setSelectedModelName(null)
-              }}
-              model={selectedModel}
-              groupRatio={groupRatio || {}}
-              usableGroup={usableGroup || {}}
-              endpointMap={
-                (endpointMap as Record<
-                  string,
-                  { path?: string; method?: string }
-                >) || {}
-              }
-              autoGroups={autoGroups || []}
-              priceRate={priceRate ?? 1}
-              usdExchangeRate={usdExchangeRate ?? 1}
-              tokenUnit={tokenUnit}
-              showRechargePrice={showRechargePrice}
-            />
-          )}
+                {selectedModel && (
+                  <ModelDetailsDrawer
+                    open={Boolean(selectedModel)}
+                    onOpenChange={(open) => {
+                      if (!open) setSelectedModelName(null)
+                    }}
+                    model={selectedModel}
+                    groupRatio={groupRatio || {}}
+                    usableGroup={usableGroup || {}}
+                    endpointMap={
+                      (endpointMap as Record<
+                        string,
+                        { path?: string; method?: string }
+                      >) || {}
+                    }
+                    autoGroups={autoGroups || []}
+                    priceRate={priceRate ?? 1}
+                    usdExchangeRate={usdExchangeRate ?? 1}
+                    tokenUnit={tokenUnit}
+                    showRechargePrice={showRechargePrice}
+                  />
+                )}
+              </>
+            )}
+          </section>
         </PageTransition>
       </div>
     </PublicLayout>
