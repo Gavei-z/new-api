@@ -26,6 +26,7 @@ import {
   createRouter,
   RouterProvider,
 } from '@tanstack/react-router'
+import { Window } from 'happy-dom'
 import { createInstance, type Resource } from 'i18next'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider } from 'react-i18next'
@@ -78,6 +79,22 @@ describe('uniRouters pricing overview', () => {
     assert.match(markup, /md:grid-cols-2/)
     assert.match(markup, /href="\/wallet"/)
     assert.match(markup, /href="\/enterprise"/)
+    assert.match(markup, /All prices are displayed in USD/)
+  })
+
+  test('keeps the most-popular badge inside the pay-as-you-go card header', async () => {
+    const markup = await renderPricingOverview('en', { en: englishMessages })
+    const domWindow = new Window()
+    domWindow.document.body.innerHTML = markup
+    const badge = domWindow.document.querySelector(
+      '[data-pricing-popular-badge]'
+    )
+
+    assert.ok(badge)
+    assert.ok(badge.closest('[data-slot="card-header"]'))
+    assert.equal(badge.classList.contains('absolute'), false)
+    assert.equal(badge.classList.contains('-translate-y-1/2'), false)
+    domWindow.close()
   })
 
   test('renders a complete comparison table for pay-as-you-go users', async () => {
@@ -98,6 +115,7 @@ describe('uniRouters pricing overview', () => {
     assert.match(markup, /按量付费/)
     assert.match(markup, /企业大量定制/)
     assert.match(markup, /方案对比/)
+    assert.match(markup, /所有价格均以美元/)
   })
 
   test('uses Pricing as the public navigation title', () => {

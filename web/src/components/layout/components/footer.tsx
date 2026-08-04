@@ -17,44 +17,43 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
-import { Fragment, useMemo } from 'react'
+import { Fragment } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
-import { DEFAULT_LOGO, DEFAULT_SYSTEM_NAME } from '@/lib/constants'
+import {
+  DEFAULT_LOGO,
+  DEFAULT_SYSTEM_NAME,
+  UNIROUTERS_SUPPORT_EMAIL,
+} from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
-interface FooterLink {
-  text: string
-  href: string
-  hash?: string
-}
-
-interface FooterColumnProps {
-  title: string
-  links: FooterLink[]
-}
+import {
+  PUBLIC_FOOTER_COLUMNS,
+  type FooterColumnProps,
+  type FooterLink,
+} from './footer-links'
 
 interface FooterProps {
   logo?: string
   name?: string
-  columns?: FooterColumnProps[]
+  columns?: readonly FooterColumnProps[]
   copyright?: string
   className?: string
 }
 
 function FooterLinkItem(props: { link: FooterLink }) {
   const { t } = useTranslation()
-  const isExternal = props.link.href.startsWith('http')
+  const isExternalUrl = props.link.href.startsWith('http')
+  const usesAnchor = isExternalUrl || props.link.href.startsWith('mailto:')
   const label = t(props.link.text)
 
-  if (isExternal) {
+  if (usesAnchor) {
     return (
       <a
         href={props.link.href}
-        target='_blank'
-        rel='noopener noreferrer'
+        target={isExternalUrl ? '_blank' : undefined}
+        rel={isExternalUrl ? 'noopener noreferrer' : undefined}
         className='text-muted-foreground hover:text-foreground text-sm transition-colors duration-200'
       >
         {label}
@@ -73,35 +72,31 @@ function FooterLinkItem(props: { link: FooterLink }) {
   )
 }
 
-// Renders User Agreement / Privacy Policy links inline with the parent's
-// copyright row when either is configured in System Settings → Site. Emits
-// fragmented siblings so the parent flex container's gap controls spacing.
-function LegalLinks(props: { leadingSeparator?: boolean }) {
+function LegalLinks() {
   const { t } = useTranslation()
-  const { status } = useStatus()
-  const items: { key: string; label: string; href: string }[] = []
-  if (status?.user_agreement_enabled) {
-    items.push({
-      key: 'user-agreement',
-      label: t('User Agreement'),
-      href: '/user-agreement',
-    })
-  }
-  if (status?.privacy_policy_enabled) {
-    items.push({
-      key: 'privacy-policy',
+  const items = [
+    {
+      key: 'terms',
+      label: t('Terms of Service'),
+      href: '/terms',
+    },
+    {
+      key: 'privacy',
       label: t('Privacy Policy'),
-      href: '/privacy-policy',
-    })
-  }
-  if (items.length === 0) {
-    return null
-  }
+      href: '/privacy',
+    },
+    {
+      key: 'refund-policy',
+      label: t('Refund Policy'),
+      href: '/refund-policy',
+    },
+  ]
+
   return (
     <>
       {items.map((item, index) => (
         <Fragment key={item.key}>
-          {(props.leadingSeparator || index > 0) && (
+          {index > 0 && (
             <span aria-hidden='true' className='text-muted-foreground/30'>
               ·
             </span>
@@ -120,56 +115,13 @@ function LegalLinks(props: { leadingSeparator?: boolean }) {
 
 export function Footer(props: FooterProps) {
   const { t } = useTranslation()
-  const { footerHtml, demoSiteEnabled } = useSystemConfig()
+  const { footerHtml } = useSystemConfig()
 
-  const displayLogo = DEFAULT_LOGO
-  const displayName = DEFAULT_SYSTEM_NAME
-  const isDemoSiteMode = Boolean(demoSiteEnabled)
+  const displayLogo = props.logo ?? DEFAULT_LOGO
+  const displayName = props.name ?? DEFAULT_SYSTEM_NAME
   const currentYear = new Date().getFullYear()
-  const fallbackColumns = useMemo<FooterColumnProps[]>(
-    () => [
-      {
-        title: t('footer.columns.docs.title'),
-        links: [
-          {
-            text: t('footer.columns.docs.links.quickStart'),
-            href: '/docs',
-            hash: 'quick-start',
-          },
-          {
-            text: t('footer.columns.docs.links.installation'),
-            href: '/docs',
-            hash: 'coding-agents',
-          },
-          {
-            text: t('footer.columns.docs.links.apiDocs'),
-            href: '/docs',
-            hash: 'api-reference',
-          },
-        ],
-      },
-      {
-        title: t('footer.columns.related.title'),
-        links: [
-          {
-            text: t('footer.columns.related.links.oneApi'),
-            href: 'https://github.com/songquanpeng/one-api',
-          },
-          {
-            text: t('footer.columns.related.links.midjourney'),
-            href: 'https://github.com/novicezk/midjourney-proxy',
-          },
-          {
-            text: t('footer.columns.related.links.newApiKeyTool'),
-            href: 'https://github.com/Calcium-Ion/new-api-key-tool',
-          },
-        ],
-      },
-    ],
-    [t]
-  )
-
-  const displayColumns = props.columns ?? fallbackColumns
+  const displayColumns: readonly FooterColumnProps[] =
+    props.columns ?? PUBLIC_FOOTER_COLUMNS
 
   if (footerHtml) {
     return (
@@ -185,7 +137,7 @@ export function Footer(props: FooterProps) {
               className='custom-footer text-muted-foreground min-w-0 text-center text-sm sm:text-left'
               dangerouslySetInnerHTML={{ __html: footerHtml }}
             />
-            <div className='border-border/60 text-muted-foreground/45 flex w-full flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t pt-4 text-xs sm:w-auto sm:justify-end sm:border-t-0 sm:border-l sm:pt-0 sm:pl-5'>
+            <div className='border-border/60 text-muted-foreground/60 flex w-full flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t pt-4 text-xs sm:w-auto sm:justify-end sm:border-t-0 sm:border-l sm:pt-0 sm:pl-5'>
               <LegalLinks />
             </div>
           </div>
@@ -198,51 +150,59 @@ export function Footer(props: FooterProps) {
     <footer
       className={cn('border-border/40 relative z-10 border-t', props.className)}
     >
-      <div className='mx-auto max-w-6xl px-6 py-12 md:py-16'>
-        <div className='flex flex-col justify-between gap-10 md:flex-row md:gap-16'>
-          {/* Brand column */}
-          <div className='shrink-0'>
+      <div className='mx-auto max-w-7xl px-6 py-12 md:py-16'>
+        <div className='grid gap-12 lg:grid-cols-[minmax(220px,1fr)_minmax(0,2.4fr)] lg:gap-16'>
+          <div>
             <Link to='/' className='group flex items-center gap-2.5'>
               <img
                 src={displayLogo}
                 alt={displayName}
-                className='size-7 rounded-lg object-contain'
+                className='size-8 rounded-lg object-contain'
               />
               <span className='text-sm font-semibold tracking-tight'>
                 {displayName}
               </span>
             </Link>
-            <p className='text-muted-foreground/60 mt-3 max-w-[200px] text-xs leading-relaxed'>
-              {t('Powerful API Management Platform')}
+            <p className='text-muted-foreground mt-4 max-w-[240px] text-sm leading-6'>
+              {t('footer.brand.tagline')}
             </p>
+            <a
+              href={`mailto:${UNIROUTERS_SUPPORT_EMAIL}`}
+              className='text-muted-foreground hover:text-foreground mt-4 inline-flex text-sm transition-colors'
+            >
+              {UNIROUTERS_SUPPORT_EMAIL}
+            </a>
           </div>
 
-          {/* Links columns */}
-          {isDemoSiteMode && (
-            <div className='grid grid-cols-3 gap-8 md:gap-16'>
-              {displayColumns.map((column) => (
-                <div key={column.title}>
-                  <p className='text-muted-foreground/50 mb-3 text-xs font-medium tracking-wider uppercase'>
-                    {t(column.title)}
-                  </p>
-                  <ul className='space-y-2.5'>
-                    {column.links.map((link) => (
-                      <li key={`${link.href}-${link.hash ?? ''}-${link.text}`}>
-                        <FooterLinkItem link={link} />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          )}
+          <nav
+            aria-label={t('Footer navigation')}
+            className='grid grid-cols-2 gap-x-8 gap-y-10 sm:grid-cols-4'
+          >
+            {displayColumns.map((column) => (
+              <div key={column.title}>
+                <p className='text-foreground mb-4 text-sm font-semibold'>
+                  {t(column.title)}
+                </p>
+                <ul className='space-y-3'>
+                  {column.links.map((link) => (
+                    <li key={`${link.href}-${link.hash ?? ''}-${link.text}`}>
+                      <FooterLinkItem link={link} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </nav>
         </div>
 
-        <div className='border-border/30 text-muted-foreground/40 mt-12 flex justify-end border-t pt-6 text-right text-xs'>
+        <div className='border-border/40 text-muted-foreground mt-12 flex flex-col gap-4 border-t pt-6 text-xs sm:flex-row sm:items-center sm:justify-between'>
           <span>
             &copy; {currentYear} {displayName}.{' '}
             {props.copyright ?? t('footer.defaultCopyright')}
           </span>
+          <div className='flex flex-wrap items-center gap-x-3 gap-y-1'>
+            <LegalLinks />
+          </div>
         </div>
       </div>
     </footer>

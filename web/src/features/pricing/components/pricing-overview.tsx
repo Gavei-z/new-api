@@ -140,16 +140,27 @@ export function PricingOverview() {
             'No platform fees, subscriptions, or minimum spend. Top up your wallet and pay only for successful usage.'
           )}
         </p>
+        <p
+          data-pricing-currency
+          className='text-muted-foreground/80 mt-3 text-xs font-medium tracking-wide'
+        >
+          {t('All prices are displayed in USD unless stated otherwise.')}
+        </p>
       </header>
 
       <div className='mt-10 grid gap-5 md:grid-cols-2' data-pricing-plan-grid>
-        <Card className='relative border-blue-500/40 bg-gradient-to-b from-blue-500/[0.08] to-transparent shadow-xl shadow-blue-950/5'>
-          <div className='absolute top-0 right-5 -translate-y-1/2 rounded-full bg-blue-600 px-3 py-1 text-[11px] font-semibold tracking-wide text-white uppercase shadow-sm'>
-            {t('Most popular')}
-          </div>
+        <Card className='border-blue-500/40 bg-gradient-to-b from-blue-500/[0.08] to-transparent shadow-xl shadow-blue-950/5'>
           <CardHeader className='gap-3 px-6 pt-4 sm:px-8 sm:pt-6'>
-            <div className='flex size-11 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400'>
-              <CircleDollarSign className='size-6' aria-hidden='true' />
+            <div className='flex items-start justify-between gap-4'>
+              <div className='flex size-11 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400'>
+                <CircleDollarSign className='size-6' aria-hidden='true' />
+              </div>
+              <span
+                data-pricing-popular-badge
+                className='shrink-0 rounded-full bg-blue-600 px-3 py-1 text-[11px] font-semibold tracking-wide text-white uppercase shadow-sm'
+              >
+                {t('Most popular')}
+              </span>
             </div>
             <div>
               <CardTitle className='text-xl'>{t('Pay as you go')}</CardTitle>

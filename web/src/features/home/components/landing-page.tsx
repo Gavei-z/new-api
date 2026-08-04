@@ -39,6 +39,7 @@ import {
   UNIROUTERS_HOME_HERO_COPY,
 } from '../constants'
 import { FaqSection } from './faq-section'
+import { ImageGenerationShowcase } from './image-generation-showcase'
 import { Stats } from './sections/stats'
 
 function getQuickStarts(t: TFunction) {
@@ -519,6 +520,7 @@ export function LandingPage(props: { isAuthenticated: boolean }) {
       <Hero />
       <Stats />
       <FeatureGrid />
+      <ImageGenerationShowcase />
       <ModelShowcase />
       <CallToAction isAuthenticated={props.isAuthenticated} />
       <FaqSection />
