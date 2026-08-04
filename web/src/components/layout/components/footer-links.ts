@@ -39,7 +39,8 @@ export const PUBLIC_FOOTER_COLUMNS: readonly FooterColumnProps[] = [
       },
       {
         text: 'footer.columns.product.links.imageGeneration',
-        href: '/pricing/gpt-image-2',
+        href: '/',
+        hash: 'image-generation',
       },
       {
         text: 'footer.columns.product.links.enterprise',
@@ -85,7 +86,6 @@ export const PUBLIC_FOOTER_COLUMNS: readonly FooterColumnProps[] = [
       {
         text: 'footer.columns.support.links.enterpriseQuote',
         href: '/enterprise',
-        hash: 'enterprise-quote',
       },
     ],
   },

@@ -35,8 +35,9 @@ export function ImageGenerationShowcase() {
 
   return (
     <section
+      id='image-generation'
       aria-labelledby='image-generation-title'
-      className='home-grid relative overflow-hidden px-4 py-20 sm:px-6 sm:py-32'
+      className='home-grid relative scroll-mt-20 overflow-hidden px-4 py-20 sm:px-6 sm:py-32'
     >
       <div className='pointer-events-none absolute top-20 -left-32 size-80 rounded-full bg-blue-500/10 blur-3xl' />
       <div className='pointer-events-none absolute right-0 bottom-0 size-96 rounded-full bg-violet-500/10 blur-3xl' />

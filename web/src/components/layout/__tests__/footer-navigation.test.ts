@@ -63,6 +63,26 @@ describe('public footer navigation', () => {
     )
   })
 
+  test('routes enterprise quotes and image education to their public pages', () => {
+    const links = PUBLIC_FOOTER_COLUMNS.flatMap((column) => column.links)
+    const enterpriseQuote = links.find(
+      (link) => link.text === 'footer.columns.support.links.enterpriseQuote'
+    )
+    const imageGeneration = links.find(
+      (link) => link.text === 'footer.columns.product.links.imageGeneration'
+    )
+
+    assert.deepEqual(enterpriseQuote, {
+      text: 'footer.columns.support.links.enterpriseQuote',
+      href: '/enterprise',
+    })
+    assert.deepEqual(imageGeneration, {
+      text: 'footer.columns.product.links.imageGeneration',
+      href: '/',
+      hash: 'image-generation',
+    })
+  })
+
   test('translates every footer group and link in English and Chinese', () => {
     const keys = PUBLIC_FOOTER_COLUMNS.flatMap((column) => [
       column.title,
