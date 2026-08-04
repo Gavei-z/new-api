@@ -91,4 +91,18 @@ describe('public legal content', () => {
   test('uses the approved public support mailbox', () => {
     assert.equal(UNIROUTERS_SUPPORT_EMAIL, 'dealerjzad@gmail.com')
   })
+
+  test('states the unused-balance refund, processing fee, and enforcement rules', () => {
+    for (const messages of [english, chinese]) {
+      assert.match(messages['legal.terms.refunds.p2'], /1%–3%/)
+      assert.ok(messages['legal.terms.refunds.p3'].trim())
+      assert.match(messages['legal.refund.eligible.b2'], /1%–3%/)
+      assert.ok(messages['legal.refund.nonRefundable.b3'].trim())
+    }
+
+    assert.match(english['legal.terms.refunds.p2'], /unused purchased balance/)
+    assert.match(chinese['legal.terms.refunds.p2'], /未使用的已购余额/)
+    assert.match(english['legal.terms.refunds.p3'], /suspended or terminated/)
+    assert.match(chinese['legal.terms.refunds.p3'], /封停或终止/)
+  })
 })

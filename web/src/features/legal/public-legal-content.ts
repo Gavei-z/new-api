@@ -69,7 +69,12 @@ export const TERMS_SECTIONS = [
   {
     id: 'delivery-refunds-cancellation',
     titleKey: 'legal.terms.refunds.title',
-    paragraphKeys: ['legal.terms.refunds.p1', 'legal.terms.refunds.p2'],
+    paragraphKeys: [
+      'legal.terms.refunds.p1',
+      'legal.terms.refunds.p2',
+      'legal.terms.refunds.p3',
+      'legal.terms.refunds.p4',
+    ],
   },
   {
     id: 'availability',
@@ -225,6 +230,7 @@ export const REFUND_SECTIONS = [
       'legal.refund.nonRefundable.b1',
       'legal.refund.nonRefundable.b2',
       'legal.refund.nonRefundable.b3',
+      'legal.refund.nonRefundable.b4',
     ],
   },
   {
