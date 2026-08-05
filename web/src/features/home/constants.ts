@@ -58,7 +58,7 @@ export const UNIROUTERS_HOME_FAQS = [
   {
     questionKey: 'How can I request an invoice?',
     answerKey:
-      'If your cumulative personal spending exceeds USD 40, or your enterprise service spending exceeds USD 70, we can issue an invoice. Standard invoices are available, special VAT invoices can be arranged, and bank transfers are supported.',
+      'If your cumulative personal spending exceeds USD 40, or your enterprise service spending exceeds USD 70, we can issue an invoice. Standard invoices are available, and bank transfers are supported.',
   },
   {
     questionKey: 'What if I do not use all of my credit?',

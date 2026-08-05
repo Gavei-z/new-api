@@ -52,6 +52,7 @@ describe('uniRouters home FAQ section', () => {
     assert.match(markup, /We buy at wholesale rates/)
     assert.match(markup, /cache reads/)
     assert.match(markup, /USD 40/)
+    assert.doesNotMatch(markup, /special VAT/)
     assert.match(markup, /multiple API keys/)
   })
 
@@ -63,6 +64,7 @@ describe('uniRouters home FAQ section', () => {
     assert.match(markup, /批量采购/)
     assert.match(markup, /缓存读取/)
     assert.match(markup, /40 美元/)
+    assert.doesNotMatch(markup, /增值税专用/)
     assert.match(markup, /多个 API Key/)
   })
 })

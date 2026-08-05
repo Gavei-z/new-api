@@ -196,7 +196,7 @@ export const STATIC_I18N_KEYS = [
   'Does UniRouters support cache reads?',
   'Yes. Cache reads are supported. When usage is calculated, input tokens served from cache are multiplied by a discount factor, so they consume less credit.',
   'How can I request an invoice?',
-  'If your cumulative personal spending exceeds USD 40, or your enterprise service spending exceeds USD 70, we can issue an invoice. Standard invoices are available, special VAT invoices can be arranged, and bank transfers are supported.',
+  'If your cumulative personal spending exceeds USD 40, or your enterprise service spending exceeds USD 70, we can issue an invoice. Standard invoices are available, and bank transfers are supported.',
   'What if I do not use all of my credit?',
   'You can share API access with friends or team members by creating separate API keys under one account. UniRouters supports multiple API keys per account.',
   'Corporate invoicing supported',
