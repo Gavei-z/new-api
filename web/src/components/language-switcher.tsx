@@ -30,17 +30,29 @@ import {
 import {
   INTERFACE_LANGUAGE_OPTIONS,
   normalizeInterfaceLanguage,
+  type InterfaceLanguageCode,
 } from '@/i18n/languages'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
-export function LanguageSwitcher() {
+type LanguageSwitcherProps = {
+  variant?: 'dropdown' | 'segmented'
+}
+
+const SEGMENTED_LANGUAGE_OPTIONS = [
+  { code: 'en', label: 'EN', name: 'English' },
+  { code: 'zhCN', label: 'CN', name: 'Chinese' },
+] as const
+
+export function LanguageSwitcher(props: LanguageSwitcherProps = {}) {
   const { i18n, t } = useTranslation()
   const user = useAuthStore((s) => s.auth.user)
   const currentLanguage = normalizeInterfaceLanguage(i18n.language)
   const handleChangeLanguage = useCallback(
-    async (code: string) => {
+    async (code: InterfaceLanguageCode) => {
+      if (code === currentLanguage) return
+
       await i18n.changeLanguage(code)
       if (user) {
         try {
@@ -50,8 +62,42 @@ export function LanguageSwitcher() {
         }
       }
     },
-    [i18n, user]
+    [currentLanguage, i18n, user]
   )
+
+  if (props.variant === 'segmented') {
+    return (
+      <div
+        role='group'
+        aria-label={t('Change language')}
+        className='border-border/60 bg-muted/60 inline-flex h-8 items-center rounded-lg border p-0.5'
+      >
+        {SEGMENTED_LANGUAGE_OPTIONS.map((language) => {
+          const isActive = currentLanguage === language.code
+
+          return (
+            <Button
+              key={language.code}
+              type='button'
+              variant='ghost'
+              size='sm'
+              aria-label={`${t('Change language')}: ${t(language.name)}`}
+              aria-pressed={isActive}
+              className={cn(
+                'h-7 min-w-9 rounded-md px-2 text-[11px] font-semibold tracking-wide',
+                isActive
+                  ? 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'
+              )}
+              onClick={() => void handleChangeLanguage(language.code)}
+            >
+              {language.label}
+            </Button>
+          )
+        })}
+      </div>
+    )
+  }
 
   return (
     <DropdownMenu modal={false}>
@@ -65,7 +111,7 @@ export function LanguageSwitcher() {
         {INTERFACE_LANGUAGE_OPTIONS.map((lang) => (
           <DropdownMenuItem
             key={lang.code}
-            onClick={() => handleChangeLanguage(lang.code)}
+            onClick={() => void handleChangeLanguage(lang.code)}
           >
             {lang.label}
             <Check
