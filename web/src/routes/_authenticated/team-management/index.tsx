@@ -17,10 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import { z } from 'zod'
 
 import { Teams } from '@/features/teams'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
+
+const teamManagementSearchSchema = z.object({
+  stripe: z.enum(['success', 'cancel']).optional(),
+})
 
 export const Route = createFileRoute('/_authenticated/team-management/')({
   beforeLoad: () => {
@@ -33,5 +38,11 @@ export const Route = createFileRoute('/_authenticated/team-management/')({
       throw redirect({ to: '/403' })
     }
   },
-  component: Teams,
+  component: RouteComponent,
+  validateSearch: teamManagementSearchSchema,
 })
+
+function RouteComponent() {
+  const { stripe } = Route.useSearch()
+  return <Teams initialStripeStatus={stripe} />
+}

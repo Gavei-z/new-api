@@ -38,6 +38,8 @@ func setupTeamTestDB(t *testing.T) *gorm.DB {
 		&Team{},
 		&TeamMember{},
 		&TeamQuotaTransaction{},
+		&PrepaidReserve{},
+		&PrepaidReserveTransaction{},
 		&Log{},
 	))
 
@@ -96,7 +98,7 @@ func TestTeamQuotaConcurrentDeductionNeverOverdraws(t *testing.T) {
 	var stored Team
 	require.NoError(t, db.First(&stored, team.Id).Error)
 	assert.Equal(t, 20, stored.Quota)
-	assert.Equal(t, 80, stored.UsedQuota)
+	assert.EqualValues(t, 80, stored.UsedQuota)
 
 	var transactionCount int64
 	require.NoError(t, db.Model(&TeamQuotaTransaction{}).Where("team_id = ?", team.Id).Count(&transactionCount).Error)
@@ -122,7 +124,7 @@ func TestTeamQuotaIdempotencyDoesNotDoubleCharge(t *testing.T) {
 	var stored Team
 	require.NoError(t, db.First(&stored, team.Id).Error)
 	assert.Equal(t, 70, stored.Quota)
-	assert.Equal(t, 30, stored.UsedQuota)
+	assert.EqualValues(t, 30, stored.UsedQuota)
 	var transactionCount int64
 	require.NoError(t, db.Model(&TeamQuotaTransaction{}).Count(&transactionCount).Error)
 	assert.EqualValues(t, 1, transactionCount)
@@ -133,7 +135,7 @@ func TestTeamQuotaIdempotencyDoesNotDoubleCharge(t *testing.T) {
 	require.ErrorIs(t, ApplyTeamQuotaChange(conflicting), ErrTeamIdempotencyConflict)
 	require.NoError(t, db.First(&stored, team.Id).Error)
 	assert.Equal(t, 70, stored.Quota)
-	assert.Equal(t, 30, stored.UsedQuota)
+	assert.EqualValues(t, 30, stored.UsedQuota)
 }
 
 func TestDisabledTeamRejectsNewConsumptionButAcceptsRefund(t *testing.T) {
@@ -161,7 +163,7 @@ func TestDisabledTeamRejectsNewConsumptionButAcceptsRefund(t *testing.T) {
 	var stored Team
 	require.NoError(t, db.First(&stored, team.Id).Error)
 	assert.Equal(t, 30, stored.Quota)
-	assert.Equal(t, 70, stored.UsedQuota)
+	assert.EqualValues(t, 70, stored.UsedQuota)
 }
 
 func TestTeamWalletTransferIsAtomicAndIdempotent(t *testing.T) {

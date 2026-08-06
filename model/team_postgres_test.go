@@ -105,7 +105,7 @@ func TestTeamQuotaConcurrentDeductionPostgres(t *testing.T) {
 	var stored Team
 	require.NoError(t, db.First(&stored, team.Id).Error)
 	assert.Equal(t, 20, stored.Quota)
-	assert.Equal(t, 80, stored.UsedQuota)
+	assert.EqualValues(t, 80, stored.UsedQuota)
 	var transactionCount int64
 	require.NoError(t, db.Model(&TeamQuotaTransaction{}).Count(&transactionCount).Error)
 	assert.EqualValues(t, 1, transactionCount)

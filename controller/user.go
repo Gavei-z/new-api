@@ -543,6 +543,17 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":       permissions,
 	}
+	if balance, err := model.GetPrepaidBalance(model.PrepaidTargetUser, user.Id); err == nil {
+		data["reserve_quota"] = balance.ReserveQuota
+		data["total_available_quota"] = balance.TotalQuota
+	} else {
+		// Login and refresh must remain available even if an optional balance
+		// enrichment query fails; the active quota field is still authoritative
+		// for the hot billing bucket.
+		common.SysLog("failed to enrich self response with prepaid reserve: " + err.Error())
+		data["reserve_quota"] = int64(0)
+		data["total_available_quota"] = int64(user.Quota)
+	}
 	if team := model.TeamContextForSelf(user.Id); team != nil {
 		data["team"] = team
 	}

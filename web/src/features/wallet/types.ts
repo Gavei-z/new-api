@@ -130,8 +130,12 @@ export interface TopupInfo {
   min_topup: number
   /** Minimum topup amount for Stripe */
   stripe_min_topup: number
+  /** Maximum topup amount for Stripe */
+  stripe_max_topup?: number
   /** Preset amount options */
   amount_options: number[]
+  /** Stripe-specific preset USD amounts */
+  stripe_amount_options?: number[]
   /** Discount rates by amount */
   discount: Record<number, number>
   /** Optional topup link for purchasing codes */
@@ -230,6 +234,12 @@ export interface UserWalletData {
   username: string
   /** Current quota balance */
   quota: number
+  /** Total spendable balance, including any overflow reserve */
+  total_quota?: number
+  /** Overflow reserve used when the active balance reaches its safe limit */
+  reserve_quota?: number
+  /** Compatibility alias for the total spendable balance */
+  total_available_quota?: number
   /** Total used quota */
   used_quota: number
   /** Total request count */
@@ -247,7 +257,7 @@ export interface UserWalletData {
 /**
  * Topup record status
  */
-export type TopupStatus = 'success' | 'pending' | 'expired'
+export type TopupStatus = 'success' | 'pending' | 'failed' | 'expired'
 
 /**
  * Topup billing record
@@ -265,12 +275,20 @@ export interface TopupRecord {
   trade_no: string
   /** Payment method type */
   payment_method: string
+  /** Payment provider used to fulfill the order */
+  payment_provider?: string
   /** Creation timestamp */
   create_time: number
   /** Completion timestamp */
   complete_time?: number
   /** Payment status */
   status: TopupStatus
+  /** Quota credited by a verified Stripe payment */
+  credited_quota?: number
+  /** Quota removed after Stripe refunds or disputes */
+  reversed_quota?: number
+  /** The order or balance needs administrator reconciliation */
+  reconciliation_required?: boolean
 }
 
 /**

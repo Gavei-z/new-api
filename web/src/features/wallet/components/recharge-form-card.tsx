@@ -39,10 +39,13 @@ import { cn } from '@/lib/utils'
 
 import {
   formatCurrency,
+  formatUsdAmount,
   getDiscountLabel,
   getPaymentIcon,
   getMinTopupAmount,
+  getStripeTopupBounds,
   calculatePresetPricing,
+  validateStripeTopupAmount,
 } from '../lib'
 import type {
   PaymentMethod,
@@ -121,9 +124,13 @@ export function RechargeFormCard({
 
   const handleAmountChange = (value: string) => {
     setLocalAmount(value)
-    const numValue = Number.parseInt(value) || 0
-    if (numValue >= 0) {
-      onTopupAmountChange(numValue)
+    const numericValue = Number(value)
+    if (value === '' || !Number.isFinite(numericValue)) {
+      onTopupAmountChange(0)
+      return
+    }
+    if (numericValue >= 0) {
+      onTopupAmountChange(numericValue)
     }
   }
 
@@ -138,7 +145,30 @@ export function RechargeFormCard({
   const hasWaffoPaymentMethods =
     Array.isArray(waffoPayMethods) && waffoPayMethods.length > 0
   const minTopup = getMinTopupAmount(topupInfo)
+  const stripeBounds = getStripeTopupBounds(topupInfo)
+  const stripeValidation = validateStripeTopupAmount(topupAmount, stripeBounds)
+  const hasUsdStripe = topupInfo?.enable_stripe_topup === true
   const redemptionEnabled = topupInfo?.enable_redemption !== false
+
+  let stripeValidationMessage = ''
+  if (stripeValidation === 'integer') {
+    stripeValidationMessage = t('Enter a whole USD amount.')
+  } else if (stripeValidation === 'minimum') {
+    stripeValidationMessage = t('Minimum top-up is ${{amount}} USD.', {
+      amount: stripeBounds.min,
+    })
+  } else if (stripeValidation === 'maximum') {
+    stripeValidationMessage = t('Maximum top-up is ${{amount}} USD.', {
+      amount: stripeBounds.max,
+    })
+  } else if (stripeValidation === 'required' && localAmount !== '') {
+    stripeValidationMessage = t('Enter a valid USD amount.')
+  }
+  let displayedPaymentAmount = formatCurrency(paymentAmount)
+  if (hasUsdStripe) {
+    displayedPaymentAmount =
+      stripeValidation === null ? `${formatUsdAmount(paymentAmount)} USD` : '—'
+  }
 
   if (loading) {
     return (
@@ -153,7 +183,7 @@ export function RechargeFormCard({
             <div className='space-y-3'>
               <Skeleton className='h-3 w-16' />
               <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
-                {Array.from({ length: 8 }, (_, index) => `preset-${index}`).map(
+                {Array.from({ length: 6 }, (_, index) => `preset-${index}`).map(
                   (key) => (
                     <Skeleton key={key} className='h-[72px] rounded-lg' />
                   )
@@ -223,7 +253,7 @@ export function RechargeFormCard({
                   <Label className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
                     {t('Amount')}
                   </Label>
-                  <div className='grid grid-cols-2 gap-1.5 sm:gap-3 md:grid-cols-4'>
+                  <div className='grid grid-cols-2 gap-1.5 sm:grid-cols-3 sm:gap-3'>
                     {presetAmounts.map((preset) => {
                       const discount =
                         preset.discount ||
@@ -240,6 +270,10 @@ export function RechargeFormCard({
                         discount,
                         usdExchangeRate
                       )
+                      const displayedActualPrice = hasUsdStripe
+                        ? preset.value
+                        : actualPrice
+                      const showDiscount = !hasUsdStripe && hasDiscount
                       return (
                         <Button
                           key={preset.value}
@@ -254,20 +288,31 @@ export function RechargeFormCard({
                         >
                           <div className='flex w-full items-center justify-between'>
                             <div className='text-base font-semibold sm:text-lg'>
-                              {formatNumber(displayValue)}
+                              {hasUsdStripe
+                                ? formatUsdAmount(preset.value)
+                                : formatNumber(displayValue)}
                             </div>
-                            {hasDiscount && (
+                            {showDiscount && (
                               <div className='text-xs font-medium text-green-600'>
                                 {getDiscountLabel(discount)}
                               </div>
                             )}
                           </div>
                           <div className='text-muted-foreground mt-1.5 w-full text-xs sm:mt-2'>
-                            Pay {formatCurrency(actualPrice)}
-                            {hasDiscount && savedAmount > 0 && (
+                            {hasUsdStripe
+                              ? t('Pay {{amount}} USD', {
+                                  amount: formatUsdAmount(displayedActualPrice),
+                                })
+                              : `Pay ${formatCurrency(displayedActualPrice)}`}
+                            {showDiscount && savedAmount > 0 && (
                               <span className='text-green-600'>
                                 {' '}
-                                • Save {formatCurrency(savedAmount)}
+                                •{' '}
+                                {hasUsdStripe
+                                  ? t('Save {{amount}} USD', {
+                                      amount: formatUsdAmount(savedAmount),
+                                    })
+                                  : `Save ${formatCurrency(savedAmount)}`}
                               </span>
                             )}
                           </div>
@@ -283,18 +328,55 @@ export function RechargeFormCard({
                   htmlFor='topup-amount'
                   className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
                 >
-                  {t('Custom Amount')}
+                  {hasUsdStripe ? t('Custom Amount (USD)') : t('Custom Amount')}
                 </Label>
                 <div className='grid grid-cols-[minmax(0,1fr)_minmax(110px,0.55fr)] gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center'>
-                  <Input
-                    id='topup-amount'
-                    type='number'
-                    value={localAmount}
-                    onChange={(e) => handleAmountChange(e.target.value)}
-                    min={minTopup}
-                    placeholder={`Minimum ${minTopup}`}
-                    className='h-9 text-base sm:h-10 sm:text-lg'
-                  />
+                  <div>
+                    <Input
+                      id='topup-amount'
+                      type='number'
+                      inputMode='numeric'
+                      value={localAmount}
+                      onChange={(e) => handleAmountChange(e.target.value)}
+                      min={hasUsdStripe ? stripeBounds.min : minTopup}
+                      max={hasUsdStripe ? stripeBounds.max : undefined}
+                      step={hasUsdStripe ? 1 : undefined}
+                      aria-invalid={
+                        hasUsdStripe && stripeValidationMessage
+                          ? 'true'
+                          : undefined
+                      }
+                      aria-describedby={
+                        hasUsdStripe ? 'stripe-topup-guidance' : undefined
+                      }
+                      placeholder={
+                        hasUsdStripe
+                          ? t('${{min}}–${{max}} USD', {
+                              min: stripeBounds.min,
+                              max: stripeBounds.max,
+                            })
+                          : `Minimum ${minTopup}`
+                      }
+                      className='h-9 text-base sm:h-10 sm:text-lg'
+                    />
+                    {hasUsdStripe && (
+                      <p
+                        id='stripe-topup-guidance'
+                        className={cn(
+                          'mt-1.5 text-xs',
+                          stripeValidationMessage
+                            ? 'text-destructive'
+                            : 'text-muted-foreground'
+                        )}
+                      >
+                        {stripeValidationMessage ||
+                          t('Whole USD amounts from ${{min}} to ${{max}}.', {
+                            min: stripeBounds.min,
+                            max: stripeBounds.max,
+                          })}
+                      </p>
+                    )}
+                  </div>
                   <div className='bg-muted/30 flex min-h-9 items-center justify-between gap-2 rounded-md border px-3 lg:min-w-52'>
                     <span className='text-muted-foreground truncate text-xs'>
                       {t('Amount to pay:')}
@@ -303,7 +385,7 @@ export function RechargeFormCard({
                       <Skeleton className='h-5 w-16' />
                     ) : (
                       <span className='text-sm font-semibold'>
-                        {formatCurrency(paymentAmount)}
+                        {displayedPaymentAmount}
                       </span>
                     )}
                   </div>
@@ -318,15 +400,29 @@ export function RechargeFormCard({
                   <div className='grid grid-cols-2 gap-1.5 sm:gap-3 lg:grid-cols-3'>
                     {topupInfo?.pay_methods?.map((method) => {
                       const minTopup = method.min_topup || 0
-                      const disabled = minTopup > topupAmount
-                      const disabledReason = disabled
-                        ? t('Minimum topup amount: {{amount}}', {
-                            amount: minTopup,
-                          })
-                        : undefined
-                      const disabledLabel = disabled
-                        ? `${t('Minimum:')} ${minTopup}`
-                        : undefined
+                      const belowMethodMinimum = minTopup > topupAmount
+                      const invalidStripeAmount =
+                        method.type === 'stripe' && stripeValidation !== null
+                      const disabled = belowMethodMinimum || invalidStripeAmount
+                      let disabledReason: string | undefined
+                      if (invalidStripeAmount) {
+                        disabledReason =
+                          stripeValidationMessage ||
+                          t('Enter a valid USD amount.')
+                      } else if (belowMethodMinimum) {
+                        disabledReason = t('Minimum topup amount: {{amount}}', {
+                          amount: minTopup,
+                        })
+                      }
+                      let disabledLabel: string | undefined
+                      if (disabled && method.type === 'stripe') {
+                        disabledLabel = t('${{min}}–${{max}} USD', {
+                          min: stripeBounds.min,
+                          max: stripeBounds.max,
+                        })
+                      } else if (disabled) {
+                        disabledLabel = `${t('Minimum:')} ${minTopup}`
+                      }
 
                       const button = (
                         <Button

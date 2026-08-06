@@ -206,7 +206,7 @@ func GetCurrentTeamUsage(c *gin.Context) {
 
 func GetCurrentTeamTransactions(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
-	transactions, total, err := model.ListTeamQuotaTransactions(
+	transactions, total, err := model.ListTeamBalanceTransactions(
 		teamIdFromContext(c),
 		pageInfo.GetStartIdx(),
 		pageInfo.GetPageSize(),
@@ -437,7 +437,7 @@ func AdminGetTeamTransactions(c *gin.Context) {
 		return
 	}
 	pageInfo := common.GetPageQuery(c)
-	transactions, total, err := model.ListTeamQuotaTransactions(teamId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	transactions, total, err := model.ListTeamBalanceTransactions(teamId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		writeTeamError(c, err)
 		return

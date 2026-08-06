@@ -16,13 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-
 export type Team = {
   id: number
   name: string
   slug: string
   status: number
   quota: number
+  total_quota?: number
+  reserve_quota?: number
+  total_available_quota?: number
   used_quota: number
   created_by: number
   created_at: number
@@ -59,14 +61,19 @@ export type TeamUsage = {
 }
 
 export type TeamQuotaTransaction = {
-  id: number
+  id: number | string
+  source?: string
   team_id: number
   user_id: number
   actor_user_id: number
   type: string
   quota_delta: number
+  active_quota_delta?: number
+  reserve_quota_delta?: number
   used_quota_delta: number
   balance_after: number
+  active_balance_after?: number
+  reserve_balance_after?: number
   used_quota_after: number
   note: string
   created_at: number
@@ -121,4 +128,12 @@ export type EnterpriseInquiryInput = {
   message: string
   privacy_accepted: boolean
   website: string
+}
+
+export type TeamStripeTopupPayload = {
+  amount: number
+}
+
+export type TeamStripeCheckout = {
+  pay_link: string
 }

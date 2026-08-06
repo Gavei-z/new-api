@@ -233,6 +233,19 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 func (s *BillingSession) reserveFunding(delta int) error {
 	switch funding := s.funding.(type) {
 	case *WalletFunding:
+		active, err := ensureWalletActiveQuota(funding.userId, delta)
+		if err != nil {
+			return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+		}
+		if active < delta {
+			return types.NewErrorWithStatusCode(
+				fmt.Errorf("用户额度不足, 剩余额度: %s, 需要预扣费额度: %s", logger.FormatQuota(active), logger.FormatQuota(delta)),
+				types.ErrorCodeInsufficientUserQuota,
+				http.StatusForbidden,
+				types.ErrOptionWithSkipRetry(),
+				types.ErrOptionWithNoRecordErrorLog(),
+			)
+		}
 		if err := model.DecreaseUserQuota(funding.userId, delta, false); err != nil {
 			return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 		}
@@ -372,6 +385,23 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 	}
 	if teamContext != nil && team != nil {
 		if team.Quota < preConsumedQuota {
+			balance, prepareErr := model.PreparePrepaidSpend(
+				model.PrepaidTargetTeam,
+				team.Id,
+				preConsumedQuota,
+			)
+			if prepareErr != nil {
+				return nil, types.NewError(
+					prepareErr,
+					types.ErrorCodeQueryDataError,
+					types.ErrOptionWithSkipRetry(),
+				)
+			}
+			if balance.ActiveQuota <= int64(common.MaxQuota) {
+				team.Quota = int(balance.ActiveQuota)
+			}
+		}
+		if team.Quota < preConsumedQuota {
 			return nil, types.NewErrorWithStatusCode(
 				fmt.Errorf("团队额度不足, 剩余额度: %s, 需要预扣费额度: %s", logger.FormatQuota(team.Quota), logger.FormatQuota(preConsumedQuota)),
 				types.ErrorCodeInsufficientUserQuota,
@@ -404,7 +434,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 
 	// 钱包路径需要先检查用户额度
 	tryWallet := func() (*BillingSession, *types.NewAPIError) {
-		userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+		userQuota, err := ensureWalletActiveQuota(relayInfo.UserId, preConsumedQuota)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 		}

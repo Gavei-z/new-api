@@ -25,7 +25,11 @@ import { useAuthStore } from '@/stores/auth-store'
 import { RootTeamConsole } from './components/root-team-console'
 import { TeamManagerConsole } from './components/team-manager-console'
 
-export function Teams() {
+interface TeamsProps {
+  initialStripeStatus?: 'success' | 'cancel'
+}
+
+export function Teams(props: TeamsProps) {
   const { t } = useTranslation()
   const isRoot = useAuthStore(
     (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
@@ -35,7 +39,11 @@ export function Teams() {
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Team Management')}</SectionPageLayout.Title>
       <SectionPageLayout.Content>
-        {isRoot ? <RootTeamConsole /> : <TeamManagerConsole />}
+        {isRoot ? (
+          <RootTeamConsole />
+        ) : (
+          <TeamManagerConsole initialStripeStatus={props.initialStripeStatus} />
+        )}
       </SectionPageLayout.Content>
     </SectionPageLayout>
   )

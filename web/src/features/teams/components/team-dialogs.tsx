@@ -432,12 +432,14 @@ export function QuotaDialog(
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {isFund ? t('Transfer to Team Balance') : t('Adjust Team Balance')}
+            {isFund
+              ? t('Transfer Existing Personal Balance')
+              : t('Adjust Team Balance')}
           </DialogTitle>
           <DialogDescription>
             {isFund
               ? t(
-                  'Transfer available quota from your personal wallet into the shared team wallet.'
+                  'Use this only for balance already held in your personal wallet. New team funding should use Stripe.'
                 )
               : t(
                   'Every adjustment is written to the immutable team balance ledger.'

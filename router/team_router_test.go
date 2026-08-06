@@ -34,6 +34,8 @@ func setupTeamRouterTest(t *testing.T) (*gin.Engine, *model.User, *model.User) {
 		&model.Team{},
 		&model.TeamMember{},
 		&model.TeamQuotaTransaction{},
+		&model.PrepaidReserve{},
+		&model.PrepaidReserveTransaction{},
 		&model.EnterpriseInquiry{},
 		&model.Log{},
 	))
@@ -123,6 +125,27 @@ func TestRootCanAccessGlobalTeamAdministration(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusOK, response.Code)
 	assert.Contains(t, response.Body.String(), "router-tenant")
+}
+
+func TestTeamStripeRoutesRequireTeamManagerScope(t *testing.T) {
+	engine, manager, root := setupTeamRouterTest(t)
+	managerResponse := performTeamRouterRequestWithBody(
+		engine,
+		http.MethodPost,
+		"/api/team/stripe/amount",
+		manager.GetAccessToken(),
+		`{"amount":2,"payment_method":"stripe"}`,
+	)
+	assert.Equal(t, http.StatusOK, managerResponse.Code)
+
+	rootResponse := performTeamRouterRequestWithBody(
+		engine,
+		http.MethodPost,
+		"/api/team/stripe/amount",
+		root.GetAccessToken(),
+		`{"amount":2,"payment_method":"stripe"}`,
+	)
+	assert.Equal(t, http.StatusForbidden, rootResponse.Code)
 }
 
 func TestRootCannotTurnTeamMemberIntoGlobalAdminOrFundPersonalWallet(t *testing.T) {

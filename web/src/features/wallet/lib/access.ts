@@ -16,13 +16,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-// ============================================================================
-// Wallet Library Exports
-// ============================================================================
+interface WalletAccessIdentity {
+  team?: {
+    is_manager: boolean
+  }
+}
 
-export * from './affiliate'
-export * from './access'
-export * from './format'
-export * from './payment'
-export * from './stripe-topup'
-export * from './ui'
+export function canAccessPersonalWallet(
+  identity: WalletAccessIdentity | null | undefined
+): boolean {
+  return !identity?.team || identity.team.is_manager
+}
+
+export function canTopUpPersonalWallet(
+  identity: WalletAccessIdentity | null | undefined
+): boolean {
+  return !identity?.team
+}

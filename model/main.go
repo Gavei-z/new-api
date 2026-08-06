@@ -282,6 +282,8 @@ func migrateDB() error {
 		&Log{},
 		&Midjourney{},
 		&TopUp{},
+		&StripePaymentIntentLink{},
+		&StripeAdjustmentInbox{},
 		&QuotaData{},
 		&Task{},
 		&Model{},
@@ -305,6 +307,8 @@ func migrateDB() error {
 		&Team{},
 		&TeamMember{},
 		&TeamQuotaTransaction{},
+		&PrepaidReserve{},
+		&PrepaidReserveTransaction{},
 		&EnterpriseInquiry{},
 	)
 	if err != nil {
@@ -349,6 +353,8 @@ func migrateDBFast() error {
 		{&Log{}, "Log"},
 		{&Midjourney{}, "Midjourney"},
 		{&TopUp{}, "TopUp"},
+		{&StripePaymentIntentLink{}, "StripePaymentIntentLink"},
+		{&StripeAdjustmentInbox{}, "StripeAdjustmentInbox"},
 		{&QuotaData{}, "QuotaData"},
 		{&Task{}, "Task"},
 		{&Model{}, "Model"},
@@ -370,6 +376,8 @@ func migrateDBFast() error {
 		{&Team{}, "Team"},
 		{&TeamMember{}, "TeamMember"},
 		{&TeamQuotaTransaction{}, "TeamQuotaTransaction"},
+		{&PrepaidReserve{}, "PrepaidReserve"},
+		{&PrepaidReserveTransaction{}, "PrepaidReserveTransaction"},
 		{&EnterpriseInquiry{}, "EnterpriseInquiry"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大

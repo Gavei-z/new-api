@@ -46,6 +46,11 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     )
   }
 
+  const availableBalance =
+    props.user?.total_available_quota ??
+    props.user?.total_quota ??
+    props.user?.quota ??
+    0
   const stats: {
     label: string
     value: string
@@ -55,7 +60,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   }[] = [
     {
       label: t('Current Balance'),
-      value: formatQuota(props.user?.quota ?? 0),
+      value: formatQuota(availableBalance),
       description: t('Remaining quota'),
       icon: WalletCards,
       tone: 'success',

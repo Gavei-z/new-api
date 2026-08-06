@@ -131,7 +131,7 @@ export function usePayment() {
 
         // Handle Stripe payment
         if (isStripe && response.data?.pay_link) {
-          window.open(response.data.pay_link as string, '_blank')
+          window.location.assign(response.data.pay_link as string)
           toast.success(i18next.t('Redirecting to payment page...'))
           return true
         }

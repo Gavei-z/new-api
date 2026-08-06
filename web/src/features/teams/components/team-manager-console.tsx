@@ -17,19 +17,46 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { Card, CardContent } from '@/components/ui/card'
+import { useTopupInfo } from '@/features/wallet/hooks'
 
 import { getCurrentTeam } from '../api'
 import { TeamDetail } from './team-detail'
 
-export function TeamManagerConsole() {
+interface TeamManagerConsoleProps {
+  initialStripeStatus?: 'success' | 'cancel'
+}
+
+export function TeamManagerConsole(props: TeamManagerConsoleProps) {
   const { t } = useTranslation()
+  const { topupInfo } = useTopupInfo()
+  const handledStripeStatusRef = useRef(false)
   const teamQuery = useQuery({
     queryKey: ['current-team'],
     queryFn: getCurrentTeam,
   })
+  const refetchTeam = teamQuery.refetch
+
+  useEffect(() => {
+    if (!props.initialStripeStatus || handledStripeStatusRef.current) return
+    handledStripeStatusRef.current = true
+
+    if (props.initialStripeStatus === 'success') {
+      toast.success(
+        t(
+          'Returned from Stripe. We are confirming the team payment and refreshing the shared balance.'
+        )
+      )
+      void refetchTeam()
+    } else {
+      toast.info(t('Team Stripe top-up was cancelled. No charge was made.'))
+    }
+    window.history.replaceState({}, '', window.location.pathname)
+  }, [props.initialStripeStatus, refetchTeam, t])
 
   if (teamQuery.isLoading) {
     return (
@@ -56,6 +83,7 @@ export function TeamManagerConsole() {
       mode='manager'
       team={teamQuery.data.team}
       summary={teamQuery.data}
+      topupInfo={topupInfo}
     />
   )
 }

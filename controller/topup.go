@@ -46,7 +46,7 @@ func GetTopUpInfo(c *gin.Context) {
 				"name":      "Stripe",
 				"type":      "stripe",
 				"color":     "#635BFF",
-				"min_topup": strconv.Itoa(setting.StripeMinTopUp),
+				"min_topup": strconv.FormatInt(model.StripeMinimumTopUpUSD, 10),
 			}
 			payMethods = append(payMethods, stripeMethod)
 		}
@@ -113,7 +113,9 @@ func GetTopUpInfo(c *gin.Context) {
 		"creem_products":          setting.CreemProducts,
 		"pay_methods":             payMethods,
 		"min_topup":               operation_setting.MinTopUp,
-		"stripe_min_topup":        setting.StripeMinTopUp,
+		"stripe_min_topup":        model.StripeMinimumTopUpUSD,
+		"stripe_max_topup":        model.StripeMaximumTopUpUSD,
+		"stripe_amount_options":   []int{2, 5, 10, 50, 200, 500},
 		"waffo_min_topup":         setting.WaffoMinTopUp,
 		"waffo_pancake_min_topup": setting.WaffoPancakeMinTopUp,
 		"amount_options":          operation_setting.GetPaymentSetting().AmountOptions,

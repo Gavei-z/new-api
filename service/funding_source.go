@@ -34,9 +34,34 @@ type WalletFunding struct {
 
 func (w *WalletFunding) Source() string { return BillingSourceWallet }
 
+func ensureWalletActiveQuota(userId int, required int) (int, error) {
+	active, err := model.GetUserQuota(userId, false)
+	if err != nil {
+		return 0, err
+	}
+	if required <= 0 || active >= required {
+		return active, nil
+	}
+	balance, err := model.PreparePrepaidSpend(model.PrepaidTargetUser, userId, required)
+	if err != nil {
+		return 0, err
+	}
+	if balance.ActiveQuota > int64(^uint(0)>>1) {
+		return 0, model.ErrPrepaidBalanceOutOfRange
+	}
+	return int(balance.ActiveQuota), nil
+}
+
 func (w *WalletFunding) PreConsume(amount int) error {
 	if amount <= 0 {
 		return nil
+	}
+	active, err := ensureWalletActiveQuota(w.userId, amount)
+	if err != nil {
+		return err
+	}
+	if active < amount {
+		return fmt.Errorf("personal quota is insufficient")
 	}
 	if err := model.DecreaseUserQuota(w.userId, amount, false); err != nil {
 		return err
@@ -50,6 +75,13 @@ func (w *WalletFunding) Settle(delta int) error {
 		return nil
 	}
 	if delta > 0 {
+		active, err := ensureWalletActiveQuota(w.userId, delta)
+		if err != nil {
+			return err
+		}
+		if active < delta {
+			return fmt.Errorf("personal quota is insufficient")
+		}
 		return model.DecreaseUserQuota(w.userId, delta, false)
 	}
 	return model.IncreaseUserQuota(w.userId, -delta, false)

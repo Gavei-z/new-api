@@ -38,6 +38,7 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import type { SidebarData } from '@/components/layout/types'
+import { canAccessPersonalWallet } from '@/features/wallet/lib'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -108,7 +109,7 @@ export function useSidebarData(): SidebarData {
         id: 'personal',
         title: t('Personal'),
         items: [
-          ...(user?.team && !user.team.is_manager
+          ...(!canAccessPersonalWallet(user)
             ? []
             : [
                 {

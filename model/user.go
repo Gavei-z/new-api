@@ -19,6 +19,11 @@ import (
 
 const UserNameMaxLength = 20
 
+var (
+	ErrUserQuotaInsufficient = errors.New("personal quota is insufficient")
+	ErrUserQuotaOutOfRange   = errors.New("personal quota is out of range")
+)
+
 var userSortColumns = map[string]string{
 	"id":            "id",
 	"username":      "username",
@@ -93,8 +98,8 @@ type User struct {
 	VerificationCode string                     `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
 	AccessToken      *string                    `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
 	Quota            int                        `json:"quota" gorm:"type:int;default:0"`
-	UsedQuota        int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
-	RequestCount     int                        `json:"request_count" gorm:"type:int;default:0;"`               // request number
+	UsedQuota        int64                      `json:"used_quota" gorm:"type:bigint;default:0;column:used_quota"` // used quota
+	RequestCount     int                        `json:"request_count" gorm:"type:int;default:0;"`                  // request number
 	Group            string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
 	AffCode          string                     `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
 	AffCount         int                        `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
@@ -1165,7 +1170,7 @@ func GetUserQuota(id int, fromDB bool) (quota int, err error) {
 	return quota, nil
 }
 
-func GetUserUsedQuota(id int) (quota int, err error) {
+func GetUserUsedQuota(id int) (quota int64, err error) {
 	err = DB.Model(&User{}).Where("id = ?", id).Select("used_quota").Find(&quota).Error
 	return quota, err
 }
@@ -1242,53 +1247,72 @@ func GetUserSetting(id int, fromDB bool) (settingMap dto.UserSetting, err error)
 }
 
 func IncreaseUserQuota(id int, quota int, db bool) (err error) {
-	if quota < 0 {
-		return errors.New("quota 不能为负数！")
+	if quota < 0 || quota > common.MaxQuota {
+		return ErrUserQuotaOutOfRange
 	}
-	gopool.Go(func() {
-		err := cacheIncrUserQuota(id, int64(quota))
-		if err != nil {
-			common.SysLog("failed to increase user quota: " + err.Error())
-		}
-	})
-	if !db && common.BatchUpdateEnabled {
-		addNewRecord(BatchUpdateTypeUserQuota, id, quota)
-		return nil
+	// User quota is a financial balance and can also be changed by signed
+	// payment webhooks. Keep it transactional in the database even when the
+	// lower-risk usage counters are batch-updated.
+	_ = db
+	lock := userQuotaMutationLock(id)
+	lock.Lock()
+	defer lock.Unlock()
+	if err := increaseUserQuota(id, quota); err != nil {
+		return err
 	}
-	return increaseUserQuota(id, quota)
+	if err := cacheIncrUserQuota(id, int64(quota)); err != nil {
+		common.SysLog("failed to increase user quota cache: " + err.Error())
+	}
+	return nil
 }
 
 func increaseUserQuota(id int, quota int) (err error) {
-	err = DB.Model(&User{}).Where("id = ?", id).Update("quota", gorm.Expr("quota + ?", quota)).Error
-	if err != nil {
-		return err
+	if quota == 0 {
+		return nil
 	}
-	return err
+	result := DB.Model(&User{}).
+		Where("id = ? AND quota >= 0 AND quota <= ?", id, common.MaxQuota-quota).
+		Update("quota", gorm.Expr("quota + ?", quota))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrUserQuotaOutOfRange
+	}
+	return nil
 }
 
 func DecreaseUserQuota(id int, quota int, db bool) (err error) {
-	if quota < 0 {
-		return errors.New("quota 不能为负数！")
+	if quota < 0 || quota > common.MaxQuota {
+		return ErrUserQuotaOutOfRange
 	}
-	gopool.Go(func() {
-		err := cacheDecrUserQuota(id, int64(quota))
-		if err != nil {
-			common.SysLog("failed to decrease user quota: " + err.Error())
-		}
-	})
-	if !db && common.BatchUpdateEnabled {
-		addNewRecord(BatchUpdateTypeUserQuota, id, -quota)
-		return nil
+	_ = db
+	lock := userQuotaMutationLock(id)
+	lock.Lock()
+	defer lock.Unlock()
+	if err := decreaseUserQuota(id, quota); err != nil {
+		return err
 	}
-	return decreaseUserQuota(id, quota)
+	if err := cacheDecrUserQuota(id, int64(quota)); err != nil {
+		common.SysLog("failed to decrease user quota cache: " + err.Error())
+	}
+	return nil
 }
 
 func decreaseUserQuota(id int, quota int) (err error) {
-	err = DB.Model(&User{}).Where("id = ?", id).Update("quota", gorm.Expr("quota - ?", quota)).Error
-	if err != nil {
-		return err
+	if quota == 0 {
+		return nil
 	}
-	return err
+	result := DB.Model(&User{}).
+		Where("id = ? AND quota >= ?", id, quota).
+		Update("quota", gorm.Expr("quota - ?", quota))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrUserQuotaInsufficient
+	}
+	return nil
 }
 
 func DeltaUpdateUserQuota(id int, delta int) (err error) {
