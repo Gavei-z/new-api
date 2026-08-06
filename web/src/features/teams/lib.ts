@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { TFunction } from 'i18next'
 
+import type { TeamStripeTopupPayload } from './types'
+
 export function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
 }
@@ -44,6 +46,17 @@ export function transactionTypeLabel(t: TFunction, type: string): string {
     admin_grant: t('Administrator grant'),
     admin_deduction: t('Administrator deduction'),
     recharge: t('Wallet transfer'),
+    stripe_topup: t('Stripe top-up'),
+    stripe_recharge: t('Stripe top-up'),
+    credit: t('Stripe top-up'),
+    stripe_refund: t('Stripe refund'),
+    reversal: t('Stripe refund or dispute reversal'),
+    stripe_reversal: t('Stripe refund or dispute reversal'),
+    stripe_dispute: t('Stripe dispute reversal'),
+    restoration: t('Stripe dispute restoration'),
+    stripe_restoration: t('Stripe dispute restoration'),
+    stripe_dispute_restoration: t('Stripe dispute restoration'),
+    release: t('Prepaid reserve release'),
     consume: t('Usage pre-charge'),
     settlement: t('Usage settlement'),
     refund: t('Usage refund'),
@@ -51,4 +64,14 @@ export function transactionTypeLabel(t: TFunction, type: string): string {
     manual_correction: t('Manual correction'),
   }
   return labels[type] ?? type
+}
+
+/**
+ * The authenticated team is resolved on the server. Keeping the request body
+ * amount-only prevents the browser from selecting or overriding a team target.
+ */
+export function createTeamStripeTopupPayload(
+  amount: number
+): TeamStripeTopupPayload {
+  return { amount }
 }

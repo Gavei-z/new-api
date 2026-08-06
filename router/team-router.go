@@ -34,6 +34,8 @@ func registerTeamRoutes(apiRouter *gin.RouterGroup, anonymousRequestBodyLimit gi
 		teamRoute.GET("/usage", controller.GetCurrentTeamUsage)
 		teamRoute.GET("/transactions", controller.GetCurrentTeamTransactions)
 		teamRoute.POST("/fund", middleware.CriticalRateLimit(), controller.FundCurrentTeam)
+		teamRoute.POST("/stripe/amount", controller.RequestTeamStripeAmount)
+		teamRoute.POST("/stripe/pay", middleware.CriticalRateLimit(), controller.RequestTeamStripePay)
 	}
 
 	teamAdminRoute := apiRouter.Group("/team/admin")

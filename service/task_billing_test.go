@@ -52,6 +52,8 @@ func TestMain(m *testing.M) {
 		&model.Team{},
 		&model.TeamMember{},
 		&model.TeamQuotaTransaction{},
+		&model.PrepaidReserve{},
+		&model.PrepaidReserveTransaction{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -76,6 +78,8 @@ func truncate(t *testing.T) {
 		model.DB.Exec("DELETE FROM system_task_locks")
 		model.DB.Exec("DELETE FROM system_tasks")
 		model.DB.Exec("DELETE FROM team_quota_transactions")
+		model.DB.Exec("DELETE FROM prepaid_reserve_transactions")
+		model.DB.Exec("DELETE FROM prepaid_reserves")
 		model.DB.Exec("DELETE FROM team_members")
 		model.DB.Exec("DELETE FROM teams")
 	})

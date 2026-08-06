@@ -9,8 +9,8 @@ import (
 )
 
 func GetSubscription(c *gin.Context) {
-	var remainQuota int
-	var usedQuota int
+	var remainQuota int64
+	var usedQuota int64
 	var err error
 	var token *model.Token
 	var expiredTime int64
@@ -18,20 +18,26 @@ func GetSubscription(c *gin.Context) {
 		tokenId := c.GetInt("token_id")
 		token, err = model.GetTokenById(tokenId)
 		expiredTime = token.ExpiredTime
-		remainQuota = token.RemainQuota
-		usedQuota = token.UsedQuota
+		remainQuota = int64(token.RemainQuota)
+		usedQuota = int64(token.UsedQuota)
 	} else {
 		userId := c.GetInt("id")
 		_, team, teamErr := model.GetActiveTeamFundingContext(userId)
 		if teamErr != nil {
 			err = teamErr
 		} else if team != nil {
-			remainQuota = team.Quota
+			var balance model.PrepaidBalance
+			balance, err = model.GetPrepaidBalance(model.PrepaidTargetTeam, team.Id)
+			remainQuota = balance.TotalQuota
 			usedQuota = team.UsedQuota
 		} else {
-			remainQuota, err = model.GetUserQuota(userId, false)
+			var balance model.PrepaidBalance
+			balance, err = model.GetPrepaidBalance(model.PrepaidTargetUser, userId)
+			remainQuota = balance.TotalQuota
 			if err == nil {
-				usedQuota, err = model.GetUserUsedQuota(userId)
+				var userUsedQuota int64
+				userUsedQuota, err = model.GetUserUsedQuota(userId)
+				usedQuota = userUsedQuota
 			}
 		}
 	}
@@ -79,13 +85,13 @@ func GetSubscription(c *gin.Context) {
 }
 
 func GetUsage(c *gin.Context) {
-	var quota int
+	var quota int64
 	var err error
 	var token *model.Token
 	if common.DisplayTokenStatEnabled {
 		tokenId := c.GetInt("token_id")
 		token, err = model.GetTokenById(tokenId)
-		quota = token.UsedQuota
+		quota = int64(token.UsedQuota)
 	} else {
 		userId := c.GetInt("id")
 		_, team, teamErr := model.GetActiveTeamFundingContext(userId)

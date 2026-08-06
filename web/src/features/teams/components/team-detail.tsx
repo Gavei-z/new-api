@@ -20,6 +20,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BanknoteArrowUp,
   CircleDollarSign,
+  CreditCard,
   KeyRound,
   Plus,
   ShieldCheck,
@@ -48,6 +49,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { TopupInfo } from '@/features/wallet/types'
 import { formatNumber, formatQuota, formatTimestampToDate } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -86,6 +88,7 @@ import {
   QuotaDialog,
   ResetPasswordDialog,
 } from './team-dialogs'
+import { TeamStripeTopupDialog } from './team-stripe-topup-dialog'
 
 type TeamDetailProps =
   | {
@@ -97,6 +100,7 @@ type TeamDetailProps =
       mode: 'manager'
       team: Team
       summary: TeamSummary
+      topupInfo: TopupInfo | null
     }
 
 function signedQuota(value: number): string {
@@ -123,6 +127,7 @@ export function TeamDetail(props: TeamDetailProps) {
   const currentUserId = useAuthStore((state) => state.auth.user?.id)
   const [memberDialogOpen, setMemberDialogOpen] = useState(false)
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false)
+  const [stripeDialogOpen, setStripeDialogOpen] = useState(false)
   const [resetTarget, setResetTarget] = useState<TeamMember | null>(null)
   const [statusChangingId, setStatusChangingId] = useState<number | null>(null)
   const [usageStartTimestamp] = useState(() =>
@@ -270,6 +275,10 @@ export function TeamDetail(props: TeamDetailProps) {
   const members = membersQuery.data ?? []
   const usage = usageQuery.data ?? []
   const transactions = transactionsQuery.data?.items ?? []
+  const availableTeamQuota =
+    props.team.total_available_quota ??
+    props.team.total_quota ??
+    props.team.quota
 
   return (
     <div className='space-y-4'>
@@ -292,9 +301,28 @@ export function TeamDetail(props: TeamDetailProps) {
             <Plus />
             {t('Create Member')}
           </Button>
-          <Button onClick={() => setQuotaDialogOpen(true)}>
+          {!isRoot && (
+            <Button
+              onClick={() => setStripeDialogOpen(true)}
+              disabled={props.topupInfo?.enable_stripe_topup !== true}
+              title={
+                props.topupInfo?.enable_stripe_topup === true
+                  ? undefined
+                  : t('Stripe top-up is not available.')
+              }
+            >
+              <CreditCard />
+              {t('Add Team Funds')}
+            </Button>
+          )}
+          <Button
+            variant={isRoot ? 'default' : 'outline'}
+            onClick={() => setQuotaDialogOpen(true)}
+          >
             {isRoot ? <CircleDollarSign /> : <BanknoteArrowUp />}
-            {isRoot ? t('Adjust Balance') : t('Fund Team')}
+            {isRoot
+              ? t('Adjust Balance')
+              : t('Transfer Existing Personal Balance')}
           </Button>
           {isRoot && (
             <Button
@@ -313,7 +341,7 @@ export function TeamDetail(props: TeamDetailProps) {
           <CardHeader>
             <CardDescription>{t('Available Team Balance')}</CardDescription>
             <CardTitle className='text-2xl'>
-              {formatQuota(props.team.quota)}
+              {formatQuota(availableTeamQuota)}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -530,7 +558,12 @@ export function TeamDetail(props: TeamDetailProps) {
                         {formatTimestampToDate(transaction.created_at)}
                       </TableCell>
                       <TableCell>
-                        {transactionTypeLabel(t, transaction.type)}
+                        <div>{transactionTypeLabel(t, transaction.type)}</div>
+                        {transaction.source === 'stripe' && (
+                          <div className='text-muted-foreground text-xs'>
+                            Stripe
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell>
                         {transaction.user_id > 0 ? transaction.user_id : '-'}
@@ -580,6 +613,13 @@ export function TeamDetail(props: TeamDetailProps) {
         onOpenChange={setQuotaDialogOpen}
         onSubmit={updateQuota}
       />
+      {!isRoot && (
+        <TeamStripeTopupDialog
+          open={stripeDialogOpen}
+          onOpenChange={setStripeDialogOpen}
+          topupInfo={props.topupInfo}
+        />
+      )}
       <ResetPasswordDialog
         open={resetTarget !== null}
         onOpenChange={(open) => !open && setResetTarget(null)}

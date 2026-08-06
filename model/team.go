@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -53,10 +54,14 @@ type Team struct {
 	Slug      string `json:"slug" gorm:"type:varchar(64);not null;uniqueIndex"`
 	Status    int    `json:"status" gorm:"type:int;not null;default:1;index"`
 	Quota     int    `json:"quota" gorm:"type:int;not null;default:0"`
-	UsedQuota int    `json:"used_quota" gorm:"type:int;not null;default:0"`
-	CreatedBy int    `json:"created_by" gorm:"index"`
-	CreatedAt int64  `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt int64  `json:"updated_at" gorm:"autoUpdateTime"`
+	UsedQuota int64  `json:"used_quota" gorm:"type:bigint;not null;default:0"`
+	// ReserveQuota and TotalQuota are response-only values populated from the
+	// bigint prepaid reserve. They are never persisted in the legacy team row.
+	ReserveQuota int64 `json:"reserve_quota" gorm:"-"`
+	TotalQuota   int64 `json:"total_quota" gorm:"-"`
+	CreatedBy    int   `json:"created_by" gorm:"index"`
+	CreatedAt    int64 `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt    int64 `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // TeamMember keeps tenant membership out of the existing User model. A user
@@ -75,18 +80,20 @@ type TeamMember struct {
 // TeamQuotaTransaction is the immutable audit trail for every balance change.
 // IdempotencyKey makes billing retries safe across request retries.
 type TeamQuotaTransaction struct {
-	Id             int64  `json:"id"`
-	TeamId         int    `json:"team_id" gorm:"not null;index"`
-	UserId         int    `json:"user_id" gorm:"index"`
-	ActorUserId    int    `json:"actor_user_id" gorm:"index"`
-	Type           string `json:"type" gorm:"type:varchar(32);not null;index"`
-	QuotaDelta     int    `json:"quota_delta" gorm:"type:int;not null"`
-	UsedQuotaDelta int    `json:"used_quota_delta" gorm:"type:int;not null"`
-	BalanceAfter   int    `json:"balance_after" gorm:"type:int;not null"`
-	UsedQuotaAfter int    `json:"used_quota_after" gorm:"type:int;not null"`
-	IdempotencyKey string `json:"idempotency_key" gorm:"type:varchar(191);not null;uniqueIndex"`
-	Note           string `json:"note" gorm:"type:varchar(255)"`
-	CreatedAt      int64  `json:"created_at" gorm:"autoCreateTime;index"`
+	Id                  int64  `json:"id"`
+	TeamId              int    `json:"team_id" gorm:"not null;index"`
+	UserId              int    `json:"user_id" gorm:"index"`
+	ActorUserId         int    `json:"actor_user_id" gorm:"index"`
+	Type                string `json:"type" gorm:"type:varchar(32);not null;index"`
+	QuotaDelta          int    `json:"quota_delta" gorm:"type:int;not null"`
+	UsedQuotaDelta      int64  `json:"used_quota_delta" gorm:"type:bigint;not null"`
+	BalanceAfter        int    `json:"balance_after" gorm:"type:int;not null"`
+	ReserveBalanceAfter int64  `json:"reserve_balance_after" gorm:"type:bigint;not null;default:0"`
+	TotalBalanceAfter   int64  `json:"total_balance_after" gorm:"type:bigint;not null;default:0"`
+	UsedQuotaAfter      int64  `json:"used_quota_after" gorm:"type:bigint;not null"`
+	IdempotencyKey      string `json:"idempotency_key" gorm:"type:varchar(191);not null;uniqueIndex"`
+	Note                string `json:"note" gorm:"type:varchar(255)"`
+	CreatedAt           int64  `json:"created_at" gorm:"autoCreateTime;index"`
 }
 
 type TeamContext struct {
@@ -108,7 +115,7 @@ type TeamMemberView struct {
 	UserStatus   int    `json:"user_status"`
 	Role         int    `json:"role"`
 	MemberStatus int    `json:"member_status"`
-	UsedQuota    int    `json:"used_quota"`
+	UsedQuota    int64  `json:"used_quota"`
 	RequestCount int    `json:"request_count"`
 	CreatedAt    int64  `json:"created_at"`
 }
@@ -246,13 +253,23 @@ func GetTeamById(teamId int) (*Team, error) {
 		}
 		return nil, err
 	}
+	if err := PopulateTeamPrepaidBalance(&team); err != nil {
+		return nil, err
+	}
 	return &team, nil
 }
 
 func ListTeams() ([]Team, error) {
 	var teams []Team
-	err := DB.Order("id desc").Find(&teams).Error
-	return teams, err
+	if err := DB.Order("id desc").Find(&teams).Error; err != nil {
+		return nil, err
+	}
+	for index := range teams {
+		if err := PopulateTeamPrepaidBalance(&teams[index]); err != nil {
+			return nil, err
+		}
+	}
+	return teams, nil
 }
 
 func normalizeTeamSlug(slug string) string {
@@ -563,6 +580,24 @@ func validateTeamQuotaDelta(current int, delta int) (int, error) {
 	return next, nil
 }
 
+func validateTeamUsedQuotaDelta(current int64, delta int) (int64, error) {
+	if current < 0 || delta > common.MaxQuota || delta < -common.MaxQuota {
+		return 0, ErrTeamQuotaOutOfRange
+	}
+	delta64 := int64(delta)
+	if delta64 > 0 && current > math.MaxInt64-delta64 {
+		return 0, ErrTeamQuotaOutOfRange
+	}
+	if delta64 < 0 && current < -delta64 {
+		return 0, ErrTeamQuotaOutOfRange
+	}
+	next := current + delta64
+	if next < 0 {
+		return 0, ErrTeamQuotaOutOfRange
+	}
+	return next, nil
+}
+
 func applyTeamQuotaChangeTx(tx *gorm.DB, change TeamQuotaChange) error {
 	if change.TeamId <= 0 || strings.TrimSpace(change.IdempotencyKey) == "" || len(change.IdempotencyKey) > 191 {
 		return errors.New("invalid team quota change")
@@ -585,7 +620,7 @@ func applyTeamQuotaChangeTx(tx *gorm.DB, change TeamQuotaChange) error {
 			existing.ActorUserId != change.ActorUserId ||
 			existing.Type != change.Type ||
 			existing.QuotaDelta != change.QuotaDelta ||
-			existing.UsedQuotaDelta != change.UsedQuotaDelta {
+			existing.UsedQuotaDelta != int64(change.UsedQuotaDelta) {
 			return ErrTeamIdempotencyConflict
 		}
 		return nil
@@ -593,11 +628,28 @@ func applyTeamQuotaChangeTx(tx *gorm.DB, change TeamQuotaChange) error {
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
+	if change.QuotaDelta < 0 && team.Quota < -change.QuotaDelta {
+		balance, err := preparePrepaidSpendWithActiveTx(
+			tx,
+			PrepaidTargetTeam,
+			team.Id,
+			change.UserId,
+			int64(team.Quota),
+			-change.QuotaDelta,
+		)
+		if err != nil {
+			return err
+		}
+		if balance.ActiveQuota > int64(common.MaxQuota) {
+			return ErrTeamQuotaOutOfRange
+		}
+		team.Quota = int(balance.ActiveQuota)
+	}
 	nextQuota, err := validateTeamQuotaDelta(team.Quota, change.QuotaDelta)
 	if err != nil {
 		return err
 	}
-	nextUsed, err := validateTeamQuotaDelta(team.UsedQuota, change.UsedQuotaDelta)
+	nextUsed, err := validateTeamUsedQuotaDelta(team.UsedQuota, change.UsedQuotaDelta)
 	if err != nil {
 		return err
 	}
@@ -607,17 +659,34 @@ func applyTeamQuotaChangeTx(tx *gorm.DB, change TeamQuotaChange) error {
 	}).Error; err != nil {
 		return err
 	}
+	var reserveBalanceAfter int64
+	var reserve PrepaidReserve
+	reserveErr := lockForUpdate(tx).
+		Select("quota").
+		Where("target_type = ? AND target_id = ?", PrepaidTargetTeam, team.Id).
+		First(&reserve).Error
+	if reserveErr != nil && !errors.Is(reserveErr, gorm.ErrRecordNotFound) {
+		return reserveErr
+	}
+	if reserveErr == nil {
+		if reserve.Quota < 0 || int64(nextQuota) > int64(^uint64(0)>>1)-reserve.Quota {
+			return ErrPrepaidBalanceOutOfRange
+		}
+		reserveBalanceAfter = reserve.Quota
+	}
 	transaction := TeamQuotaTransaction{
-		TeamId:         change.TeamId,
-		UserId:         change.UserId,
-		ActorUserId:    change.ActorUserId,
-		Type:           change.Type,
-		QuotaDelta:     change.QuotaDelta,
-		UsedQuotaDelta: change.UsedQuotaDelta,
-		BalanceAfter:   nextQuota,
-		UsedQuotaAfter: nextUsed,
-		IdempotencyKey: change.IdempotencyKey,
-		Note:           strings.TrimSpace(change.Note),
+		TeamId:              change.TeamId,
+		UserId:              change.UserId,
+		ActorUserId:         change.ActorUserId,
+		Type:                change.Type,
+		QuotaDelta:          change.QuotaDelta,
+		UsedQuotaDelta:      int64(change.UsedQuotaDelta),
+		BalanceAfter:        nextQuota,
+		ReserveBalanceAfter: reserveBalanceAfter,
+		TotalBalanceAfter:   int64(nextQuota) + reserveBalanceAfter,
+		UsedQuotaAfter:      nextUsed,
+		IdempotencyKey:      change.IdempotencyKey,
+		Note:                strings.TrimSpace(change.Note),
 	}
 	noteRunes := []rune(transaction.Note)
 	if len(noteRunes) > 255 {
@@ -662,6 +731,23 @@ func TransferUserQuotaToTeam(teamId int, actorUserId int, amount int, idempotenc
 			return err
 		}
 		if user.Quota < amount {
+			balance, err := preparePrepaidSpendWithActiveTx(
+				tx,
+				PrepaidTargetUser,
+				user.Id,
+				actorUserId,
+				int64(user.Quota),
+				amount,
+			)
+			if err != nil {
+				return err
+			}
+			if balance.ActiveQuota > int64(common.MaxQuota) {
+				return ErrPrepaidBalanceOutOfRange
+			}
+			user.Quota = int(balance.ActiveQuota)
+		}
+		if user.Quota < amount {
 			return fmt.Errorf("personal quota is insufficient")
 		}
 		if err := tx.Model(&User{}).Where("id = ?", actorUserId).Update("quota", user.Quota-amount).Error; err != nil {
@@ -685,8 +771,8 @@ func TransferUserQuotaToTeam(teamId int, actorUserId int, amount int, idempotenc
 		return err
 	}
 	if applied {
-		if err := cacheDecrUserQuota(actorUserId, int64(amount)); err != nil {
-			common.SysLog("failed to update user quota cache after team recharge: " + err.Error())
+		if err := RefreshPrepaidTargetCache(PrepaidTargetUser, actorUserId); err != nil {
+			common.SysLog("failed to refresh user quota cache after team recharge: " + err.Error())
 		}
 	}
 	return nil

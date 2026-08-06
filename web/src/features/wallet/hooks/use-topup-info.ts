@@ -21,6 +21,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { getTopupInfo } from '../api'
 import {
   generatePresetAmounts,
+  getStripeTopupPresets,
   mergePresetAmounts,
   getMinTopupAmount,
 } from '../lib'
@@ -196,7 +197,14 @@ export function useTopupInfo() {
 
       setTopupInfo(processedData)
 
-      if (processedData.amount_options.length > 0) {
+      if (processedData.enable_stripe_topup) {
+        const stripePresets = getStripeTopupPresets(processedData)
+        const customPresets = mergePresetAmounts(
+          stripePresets,
+          processedData.discount || {}
+        )
+        setPresetAmounts(customPresets)
+      } else if (processedData.amount_options.length > 0) {
         const customPresets = mergePresetAmounts(
           processedData.amount_options,
           processedData.discount || {}

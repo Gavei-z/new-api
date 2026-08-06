@@ -16,13 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-// ============================================================================
-// Wallet Library Exports
-// ============================================================================
+import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 
-export * from './affiliate'
-export * from './access'
-export * from './format'
-export * from './payment'
-export * from './stripe-topup'
-export * from './ui'
+import { createTeamStripeTopupPayload } from '../lib'
+
+describe('team Stripe top-up target contract', () => {
+  test('sends only the amount because the server derives the authenticated team', () => {
+    const payload = createTeamStripeTopupPayload(50)
+
+    assert.deepEqual(payload, { amount: 50 })
+    assert.equal('team_id' in payload, false)
+    assert.equal('user_id' in payload, false)
+  })
+})

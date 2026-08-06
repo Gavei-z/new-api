@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 
+import { createTeamStripeTopupPayload } from './lib'
 import type {
   CreateTeamInput,
   CreateTeamMemberInput,
@@ -28,14 +29,19 @@ import type {
   TeamMember,
   TeamQuotaTransaction,
   TeamSummary,
+  TeamStripeCheckout,
   TeamUsage,
 } from './types'
 
 function unwrap<T>(response: {
-  data: { success: boolean; data: T; message?: string }
+  data: { success?: boolean; data: T; message?: string }
 }): T {
-  if (!response.data.success) {
-    throw new Error(response.data.message || 'Request failed')
+  const succeeded =
+    response.data.success === true || response.data.message === 'success'
+  if (!succeeded) {
+    const dataMessage =
+      typeof response.data.data === 'string' ? response.data.data : ''
+    throw new Error(dataMessage || response.data.message || 'Request failed')
   }
   return response.data.data
 }
@@ -95,6 +101,34 @@ export async function fundCurrentTeam(
       amount,
       idempotency_key: idempotencyKey,
     })
+  )
+}
+
+export async function calculateCurrentTeamStripeAmount(
+  amount: number
+): Promise<string> {
+  return unwrap(
+    await api.post(
+      '/api/team/stripe/amount',
+      createTeamStripeTopupPayload(amount),
+      {
+        skipBusinessError: true,
+      } as Record<string, unknown>
+    )
+  )
+}
+
+export async function requestCurrentTeamStripePayment(
+  amount: number
+): Promise<TeamStripeCheckout> {
+  return unwrap(
+    await api.post(
+      '/api/team/stripe/pay',
+      createTeamStripeTopupPayload(amount),
+      {
+        skipBusinessError: true,
+      } as Record<string, unknown>
+    )
   )
 }
 

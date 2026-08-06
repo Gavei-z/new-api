@@ -15,17 +15,20 @@ func isStripeTopUpEnabled() bool {
 	if !isPaymentComplianceConfirmed() {
 		return false
 	}
-	return strings.TrimSpace(setting.StripeApiSecret) != "" &&
-		strings.TrimSpace(setting.StripeWebhookSecret) != "" &&
-		strings.TrimSpace(setting.StripePriceId) != ""
+	return strings.TrimSpace(setting.GetStripeApiSecret()) != "" &&
+		strings.TrimSpace(setting.GetStripeWebhookSecret()) != "" &&
+		strings.TrimSpace(setting.GetStripePriceId()) != ""
 }
 
 func isStripeWebhookConfigured() bool {
-	return strings.TrimSpace(setting.StripeWebhookSecret) != ""
+	return strings.TrimSpace(setting.GetStripeWebhookSecret()) != ""
 }
 
 func isStripeWebhookEnabled() bool {
-	return isStripeTopUpEnabled()
+	// Webhooks must remain available after checkout is disabled or API/Price
+	// credentials are rotated. Stripe may still deliver paid, refund, and
+	// dispute events for existing orders.
+	return isStripeWebhookConfigured()
 }
 
 func isCreemTopUpEnabled() bool {

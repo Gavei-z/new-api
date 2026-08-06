@@ -44,11 +44,12 @@ func SubscriptionRequestStripePay(c *gin.Context) {
 		common.ApiErrorMsg(c, "该套餐未配置 StripePriceId")
 		return
 	}
-	if !strings.HasPrefix(setting.StripeApiSecret, "sk_") && !strings.HasPrefix(setting.StripeApiSecret, "rk_") {
+	stripeAPISecret := setting.GetStripeApiSecret()
+	if !strings.HasPrefix(stripeAPISecret, "sk_") && !strings.HasPrefix(stripeAPISecret, "rk_") {
 		common.ApiErrorMsg(c, "Stripe 未配置或密钥无效")
 		return
 	}
-	if setting.StripeWebhookSecret == "" {
+	if setting.GetStripeWebhookSecret() == "" {
 		common.ApiErrorMsg(c, "Stripe Webhook 未配置")
 		return
 	}
@@ -110,7 +111,7 @@ func SubscriptionRequestStripePay(c *gin.Context) {
 }
 
 func genStripeSubscriptionLink(referenceId string, customerId string, email string, priceId string) (string, error) {
-	stripe.Key = setting.StripeApiSecret
+	stripe.Key = setting.GetStripeApiSecret()
 
 	params := &stripe.CheckoutSessionParams{
 		ClientReferenceID: stripe.String(referenceId),

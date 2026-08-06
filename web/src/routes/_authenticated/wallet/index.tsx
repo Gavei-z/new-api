@@ -16,21 +16,32 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import { z } from 'zod'
 
 import { Wallet } from '@/features/wallet'
+import { canAccessPersonalWallet } from '@/features/wallet/lib'
+import { useAuthStore } from '@/stores/auth-store'
 
 const walletSearchSchema = z.object({
   show_history: z.boolean().optional(),
+  stripe: z.enum(['success', 'cancel']).optional(),
 })
 
 export const Route = createFileRoute('/_authenticated/wallet/')({
+  beforeLoad: () => {
+    const user = useAuthStore.getState().auth.user
+    if (!canAccessPersonalWallet(user)) {
+      throw redirect({ to: '/403' })
+    }
+  },
   component: RouteComponent,
   validateSearch: walletSearchSchema,
 })
 
 function RouteComponent() {
-  const { show_history } = Route.useSearch()
-  return <Wallet initialShowHistory={show_history} />
+  const { show_history, stripe } = Route.useSearch()
+  return (
+    <Wallet initialShowHistory={show_history} initialStripeStatus={stripe} />
+  )
 }

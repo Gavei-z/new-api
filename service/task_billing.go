@@ -103,6 +103,13 @@ func taskAdjustFunding(task *model.Task, delta int) error {
 		})
 	}
 	if delta > 0 {
+		active, err := ensureWalletActiveQuota(task.UserId, delta)
+		if err != nil {
+			return err
+		}
+		if active < delta {
+			return fmt.Errorf("personal quota is insufficient")
+		}
 		return model.DecreaseUserQuota(task.UserId, delta, false)
 	}
 	return model.IncreaseUserQuota(task.UserId, -delta, false)

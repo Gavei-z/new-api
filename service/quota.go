@@ -457,6 +457,13 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 	} else {
 		// Wallet
 		if quota > 0 {
+			active, prepareErr := ensureWalletActiveQuota(relayInfo.UserId, quota)
+			if prepareErr != nil {
+				return prepareErr
+			}
+			if active < quota {
+				return fmt.Errorf("personal quota is insufficient")
+			}
 			err = model.DecreaseUserQuota(relayInfo.UserId, quota, false)
 		} else {
 			err = model.IncreaseUserQuota(relayInfo.UserId, -quota, false)
@@ -499,13 +506,33 @@ func ResolveRelayAvailableQuota(relayInfo *relaycommon.RelayInfo) (int, error) {
 		return 0, err
 	}
 	if teamContext != nil && team != nil {
+		if team.Quota <= 0 {
+			balance, prepareErr := model.PreparePrepaidSpend(model.PrepaidTargetTeam, team.Id, 1)
+			if prepareErr != nil {
+				return 0, prepareErr
+			}
+			if balance.ActiveQuota <= int64(common.MaxQuota) {
+				team.Quota = int(balance.ActiveQuota)
+			}
+		}
 		relayInfo.BillingSource = BillingSourceTeam
 		relayInfo.TeamId = team.Id
 		relayInfo.TeamName = team.Name
 		relayInfo.UserQuota = team.Quota
 		return team.Quota, nil
 	}
-	return model.GetUserQuota(relayInfo.UserId, false)
+	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+	if err != nil || userQuota > 0 {
+		return userQuota, err
+	}
+	balance, err := model.PreparePrepaidSpend(model.PrepaidTargetUser, relayInfo.UserId, 1)
+	if err != nil {
+		return 0, err
+	}
+	if balance.ActiveQuota > int64(common.MaxQuota) {
+		return 0, model.ErrPrepaidBalanceOutOfRange
+	}
+	return int(balance.ActiveQuota), nil
 }
 
 func checkAndSendQuotaNotify(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int) {

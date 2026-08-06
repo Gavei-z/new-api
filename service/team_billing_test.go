@@ -59,7 +59,7 @@ func TestNewBillingSessionUsesTeamWalletInsteadOfPersonalWallet(t *testing.T) {
 	var storedTeam model.Team
 	require.NoError(t, model.DB.First(&storedTeam, team.Id).Error)
 	assert.Equal(t, 45, storedTeam.Quota)
-	assert.Equal(t, 55, storedTeam.UsedQuota)
+	assert.EqualValues(t, 55, storedTeam.UsedQuota)
 	var storedUser model.User
 	require.NoError(t, model.DB.First(&storedUser, user.Id).Error)
 	assert.Equal(t, 900, storedUser.Quota)
@@ -108,7 +108,7 @@ func TestTeamBillingSessionReturnsUnusedPrecharge(t *testing.T) {
 	var storedTeam model.Team
 	require.NoError(t, model.DB.First(&storedTeam, team.Id).Error)
 	assert.Equal(t, 60, storedTeam.Quota)
-	assert.Equal(t, 40, storedTeam.UsedQuota)
+	assert.EqualValues(t, 40, storedTeam.UsedQuota)
 	var storedUser model.User
 	require.NoError(t, model.DB.First(&storedUser, user.Id).Error)
 	assert.Equal(t, 900, storedUser.Quota)
@@ -151,7 +151,7 @@ func TestLegacyTeamBillingChargesEverySequenceAndNeverPersonalWallet(t *testing.
 	var storedTeam model.Team
 	require.NoError(t, model.DB.First(&storedTeam, team.Id).Error)
 	assert.Equal(t, 65, storedTeam.Quota)
-	assert.Equal(t, 35, storedTeam.UsedQuota)
+	assert.EqualValues(t, 35, storedTeam.UsedQuota)
 	var storedUser model.User
 	require.NoError(t, model.DB.First(&storedUser, user.Id).Error)
 	assert.Equal(t, 900, storedUser.Quota)
@@ -183,7 +183,7 @@ func TestTeamBillingGeneratesUniqueRequestIdsWhenMissing(t *testing.T) {
 	var storedTeam model.Team
 	require.NoError(t, model.DB.First(&storedTeam, team.Id).Error)
 	assert.Equal(t, 80, storedTeam.Quota)
-	assert.Equal(t, 20, storedTeam.UsedQuota)
+	assert.EqualValues(t, 20, storedTeam.UsedQuota)
 }
 
 func TestLegacyCapturedTeamFundingCanSettleAfterTeamDisabled(t *testing.T) {
@@ -202,7 +202,7 @@ func TestLegacyCapturedTeamFundingCanSettleAfterTeamDisabled(t *testing.T) {
 	var storedTeam model.Team
 	require.NoError(t, model.DB.First(&storedTeam, team.Id).Error)
 	assert.Equal(t, 85, storedTeam.Quota)
-	assert.Equal(t, 15, storedTeam.UsedQuota)
+	assert.EqualValues(t, 15, storedTeam.UsedQuota)
 	var storedUser model.User
 	require.NoError(t, model.DB.First(&storedUser, user.Id).Error)
 	assert.Equal(t, 900, storedUser.Quota)
