@@ -94,6 +94,8 @@ func TestCreateStripeCheckoutUsesOneDollarPriceQuantityAndIdempotency(t *testing
 	assert.EqualValues(t, 500, *captured.LineItems[0].Quantity)
 	require.NotNil(t, captured.IdempotencyKey)
 	assert.Equal(t, "stripe-topup:ref_order", *captured.IdempotencyKey)
+	require.NotNil(t, captured.Extra)
+	assert.Equal(t, "false", captured.Extra.Values.Get("managed_payments[enabled]"))
 	require.NotNil(t, captured.AllowPromotionCodes)
 	assert.False(t, *captured.AllowPromotionCodes)
 	assert.Equal(t, "ref_order", captured.Metadata["topup_reference"])
