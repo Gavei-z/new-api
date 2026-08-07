@@ -23,11 +23,17 @@ import (
 
 func GetTopUpInfo(c *gin.Context) {
 	complianceConfirmed := operation_setting.IsPaymentComplianceConfirmed()
+	enableEpay := isEpayTopUpEnabled()
 
-	// 获取支付方式
-	payMethods := operation_setting.PayMethods
-	if !complianceConfirmed {
-		payMethods = []map[string]string{}
+	// Only advertise methods backed by a configured gateway. The legacy
+	// defaults contain Alipay/WeChat even when Epay has no merchant settings.
+	payMethods := make([]map[string]string, 0, len(operation_setting.PayMethods)+3)
+	if enableEpay {
+		for _, method := range operation_setting.PayMethods {
+			if isEpayPaymentMethod(method["type"]) {
+				payMethods = append(payMethods, method)
+			}
+		}
 	}
 
 	// 如果启用了 Stripe 支付，添加到支付方法列表
@@ -96,7 +102,7 @@ func GetTopUpInfo(c *gin.Context) {
 	}
 
 	data := gin.H{
-		"enable_online_topup":              isEpayTopUpEnabled(),
+		"enable_online_topup":              enableEpay,
 		"enable_stripe_topup":              isStripeTopUpEnabled(),
 		"enable_creem_topup":               isCreemTopUpEnabled(),
 		"enable_waffo_topup":               enableWaffo,
@@ -189,6 +195,11 @@ func getMinTopup() int64 {
 }
 
 func RequestEpay(c *gin.Context) {
+	if !isEpayTopUpEnabled() {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "支付通道未配置"})
+		return
+	}
+
 	var req EpayRequest
 	err := c.ShouldBindJSON(&req)
 	if err != nil {
@@ -212,7 +223,8 @@ func RequestEpay(c *gin.Context) {
 		return
 	}
 
-	if !operation_setting.ContainsPayMethod(req.PaymentMethod) {
+	if !isEpayPaymentMethod(req.PaymentMethod) ||
+		!operation_setting.ContainsPayMethod(req.PaymentMethod) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "支付方式不存在"})
 		return
 	}
