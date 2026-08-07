@@ -176,4 +176,7 @@ func TestEpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 
 	operation_setting.PayMethods = nil
 	require.False(t, isEpayWebhookEnabled())
+
+	operation_setting.PayMethods = []map[string]string{{"type": "stripe"}}
+	require.False(t, isEpayWebhookEnabled())
 }

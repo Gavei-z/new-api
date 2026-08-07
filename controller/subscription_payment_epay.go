@@ -25,6 +25,10 @@ func SubscriptionRequestEpay(c *gin.Context) {
 	if !requirePaymentCompliance(c) {
 		return
 	}
+	if !isEpayTopUpEnabled() {
+		common.ApiErrorMsg(c, "支付通道未配置")
+		return
+	}
 
 	var req SubscriptionEpayPayRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.PlanId <= 0 {
@@ -45,7 +49,8 @@ func SubscriptionRequestEpay(c *gin.Context) {
 		common.ApiErrorMsg(c, "套餐金额过低")
 		return
 	}
-	if !operation_setting.ContainsPayMethod(req.PaymentMethod) {
+	if !isEpayPaymentMethod(req.PaymentMethod) ||
+		!operation_setting.ContainsPayMethod(req.PaymentMethod) {
 		common.ApiErrorMsg(c, "支付方式不存在")
 		return
 	}

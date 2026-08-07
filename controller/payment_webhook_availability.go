@@ -3,6 +3,7 @@ package controller
 import (
 	"strings"
 
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
@@ -99,13 +100,35 @@ func isEpayTopUpEnabled() bool {
 	if !isPaymentComplianceConfirmed() {
 		return false
 	}
-	return isEpayWebhookConfigured() && len(operation_setting.PayMethods) > 0
+	if !isEpayWebhookConfigured() {
+		return false
+	}
+	for _, method := range operation_setting.PayMethods {
+		if isEpayPaymentMethod(method["type"]) {
+			return true
+		}
+	}
+	return false
 }
 
 func isEpayWebhookConfigured() bool {
 	return strings.TrimSpace(operation_setting.PayAddress) != "" &&
 		strings.TrimSpace(operation_setting.EpayId) != "" &&
 		strings.TrimSpace(operation_setting.EpayKey) != ""
+}
+
+func isEpayPaymentMethod(method string) bool {
+	switch strings.TrimSpace(method) {
+	case "",
+		model.PaymentMethodStripe,
+		model.PaymentMethodCreem,
+		model.PaymentMethodWaffo,
+		model.PaymentMethodWaffoPancake,
+		model.PaymentMethodBalance:
+		return false
+	default:
+		return true
+	}
 }
 
 func isEpayWebhookEnabled() bool {

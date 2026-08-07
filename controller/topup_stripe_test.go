@@ -12,13 +12,14 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/stripe/stripe-go/v81"
-	"github.com/stripe/stripe-go/v81/webhook"
+	"github.com/stripe/stripe-go/v82"
+	"github.com/stripe/stripe-go/v82/webhook"
 	"gorm.io/gorm"
 )
 
@@ -100,6 +101,11 @@ func TestCreateStripeCheckoutUsesOneDollarPriceQuantityAndIdempotency(t *testing
 	assert.Equal(t, "ref_order", captured.PaymentIntentData.Metadata["topup_reference"])
 }
 
+func TestStripeSDKUsesManagedPaymentsCompatibleAPIVersion(t *testing.T) {
+	assert.True(t, strings.HasSuffix(stripe.APIVersion, ".basil"))
+	assert.GreaterOrEqual(t, stripe.APIVersion, "2025-03-31.basil")
+}
+
 func TestStripeReturnURLsDistinguishPersonalAndTeamCheckout(t *testing.T) {
 	originalAddress := system_setting.ServerAddress
 	t.Cleanup(func() {
@@ -152,6 +158,59 @@ func TestTopUpInfoPublishesStripeUSDContract(t *testing.T) {
 	assert.EqualValues(t, 2, body.Data.StripeMinTopUp)
 	assert.EqualValues(t, 50000, body.Data.StripeMaxTopUp)
 	assert.Equal(t, []int{2, 5, 10, 50, 200, 500}, body.Data.StripeAmountOptions)
+}
+
+func TestTopUpInfoHidesEpayMethodsWhenGatewayIsUnconfigured(t *testing.T) {
+	t.Setenv("STRIPE_API_SECRET", "")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "")
+	t.Setenv("STRIPE_PRICE_ID", "")
+	confirmPaymentComplianceForTest(t)
+
+	originalPayAddress := operation_setting.PayAddress
+	originalEpayID := operation_setting.EpayId
+	originalEpayKey := operation_setting.EpayKey
+	originalPayMethods := operation_setting.PayMethods
+	originalAPISecret := setting.StripeApiSecret
+	originalWebhookSecret := setting.StripeWebhookSecret
+	originalPrice := setting.StripePriceId
+	t.Cleanup(func() {
+		operation_setting.PayAddress = originalPayAddress
+		operation_setting.EpayId = originalEpayID
+		operation_setting.EpayKey = originalEpayKey
+		operation_setting.PayMethods = originalPayMethods
+		setting.StripeApiSecret = originalAPISecret
+		setting.StripeWebhookSecret = originalWebhookSecret
+		setting.StripePriceId = originalPrice
+	})
+
+	operation_setting.PayAddress = ""
+	operation_setting.EpayId = ""
+	operation_setting.EpayKey = ""
+	operation_setting.PayMethods = []map[string]string{{
+		"name": "支付宝",
+		"type": "alipay",
+	}}
+	setting.StripeApiSecret = ""
+	setting.StripeWebhookSecret = ""
+	setting.StripePriceId = ""
+
+	gin.SetMode(gin.TestMode)
+	response := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(response)
+	GetTopUpInfo(context)
+	require.Equal(t, http.StatusOK, response.Code)
+
+	var body struct {
+		Success bool `json:"success"`
+		Data    struct {
+			EnableOnlineTopUp bool                `json:"enable_online_topup"`
+			PayMethods        []map[string]string `json:"pay_methods"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
+	require.True(t, body.Success)
+	assert.False(t, body.Data.EnableOnlineTopUp)
+	assert.Empty(t, body.Data.PayMethods)
 }
 
 func TestStripeWebhookRequiresSignatureOverExactRawBody(t *testing.T) {
