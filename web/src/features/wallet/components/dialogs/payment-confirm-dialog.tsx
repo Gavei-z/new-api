@@ -33,7 +33,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { formatLocalCurrencyAmount } from '@/lib/currency'
 
 import { DEFAULT_DISCOUNT_RATE } from '../../constants'
-import { formatCurrency, formatUsdAmount, getPaymentIcon } from '../../lib'
+import {
+  formatCurrency,
+  formatUsdAmount,
+  getPaymentIcon,
+  isStripePayment,
+} from '../../lib'
 import type { PaymentMethod } from '../../types'
 
 interface PaymentConfirmDialogProps {
@@ -67,6 +72,7 @@ export function PaymentConfirmDialog({
   const hasDiscount = discountRate > 0 && discountRate < 1 && paymentAmount > 0
   const originalAmount = hasDiscount ? paymentAmount / discountRate : 0
   const discountAmount = hasDiscount ? originalAmount - paymentAmount : 0
+  const showPaymentProvider = !isStripePayment(paymentMethod?.type ?? '')
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -133,22 +139,24 @@ export function PaymentConfirmDialog({
             </div>
           )}
 
-          <div className='border-t pt-4'>
-            <div className='flex items-center justify-between'>
-              <span className='text-muted-foreground text-sm'>
-                {t('Payment Method')}
-              </span>
-              <div className='flex items-center gap-2'>
-                {getPaymentIcon(
-                  paymentMethod?.type,
-                  'h-4 w-4',
-                  paymentMethod?.icon,
-                  paymentMethod?.name
-                )}
-                <span className='font-medium'>{paymentMethod?.name}</span>
+          {showPaymentProvider && (
+            <div className='border-t pt-4'>
+              <div className='flex items-center justify-between'>
+                <span className='text-muted-foreground text-sm'>
+                  {t('Payment Method')}
+                </span>
+                <div className='flex items-center gap-2'>
+                  {getPaymentIcon(
+                    paymentMethod?.type,
+                    'h-4 w-4',
+                    paymentMethod?.icon,
+                    paymentMethod?.name
+                  )}
+                  <span className='font-medium'>{paymentMethod?.name}</span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
 
         <AlertDialogFooter className='grid grid-cols-2 gap-2 sm:flex'>
