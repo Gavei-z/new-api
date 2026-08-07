@@ -44,6 +44,7 @@ import {
   getPaymentIcon,
   getMinTopupAmount,
   getStripeTopupBounds,
+  isIntegerTopupAmount,
   calculatePresetPricing,
   validateStripeTopupAmount,
 } from '../lib'
@@ -148,6 +149,11 @@ export function RechargeFormCard({
   const stripeBounds = getStripeTopupBounds(topupInfo)
   const stripeValidation = validateStripeTopupAmount(topupAmount, stripeBounds)
   const hasUsdStripe = topupInfo?.enable_stripe_topup === true
+  const parsedLocalAmount = Number(localAmount)
+  const hasFractionalAmount =
+    localAmount !== '' &&
+    Number.isFinite(parsedLocalAmount) &&
+    !isIntegerTopupAmount(parsedLocalAmount)
   const redemptionEnabled = topupInfo?.enable_redemption !== false
   let singleStripePaymentMethod: PaymentMethod | null = null
   if (
@@ -172,15 +178,26 @@ export function RechargeFormCard({
   } else if (stripeValidation === 'required' && localAmount !== '') {
     stripeValidationMessage = t('Enter a valid USD amount.')
   }
+  let amountValidationMessage = ''
+  if (hasFractionalAmount) {
+    amountValidationMessage = t('Amount must be a whole number')
+  } else if (hasUsdStripe) {
+    amountValidationMessage = stripeValidationMessage
+  }
   let displayedPaymentAmount = formatCurrency(paymentAmount)
-  if (hasUsdStripe) {
+  if (hasFractionalAmount) {
+    displayedPaymentAmount = '—'
+  } else if (hasUsdStripe) {
     displayedPaymentAmount =
       stripeValidation === null ? `${formatUsdAmount(paymentAmount)} USD` : '—'
   }
   let singlePaymentDisabledReason = ''
-  if (singleStripePaymentMethod && stripeValidation !== null) {
+  if (
+    singleStripePaymentMethod &&
+    (hasFractionalAmount || stripeValidation !== null)
+  ) {
     singlePaymentDisabledReason =
-      stripeValidationMessage || t('Enter a valid USD amount.')
+      amountValidationMessage || t('Enter a valid USD amount.')
   } else if (
     singleStripePaymentMethod?.min_topup &&
     singleStripePaymentMethod.min_topup > topupAmount
@@ -372,14 +389,14 @@ export function RechargeFormCard({
                       onChange={(e) => handleAmountChange(e.target.value)}
                       min={hasUsdStripe ? stripeBounds.min : minTopup}
                       max={hasUsdStripe ? stripeBounds.max : undefined}
-                      step={hasUsdStripe ? 1 : undefined}
+                      step={1}
                       aria-invalid={
-                        hasUsdStripe && stripeValidationMessage
-                          ? 'true'
-                          : undefined
+                        amountValidationMessage ? 'true' : undefined
                       }
                       aria-describedby={
-                        hasUsdStripe ? 'stripe-topup-guidance' : undefined
+                        hasUsdStripe || hasFractionalAmount
+                          ? 'topup-amount-guidance'
+                          : undefined
                       }
                       placeholder={
                         hasUsdStripe
@@ -391,17 +408,18 @@ export function RechargeFormCard({
                       }
                       className='h-10 text-base sm:text-lg'
                     />
-                    {hasUsdStripe && (
+                    {(hasUsdStripe || hasFractionalAmount) && (
                       <p
-                        id='stripe-topup-guidance'
+                        id='topup-amount-guidance'
+                        aria-live='polite'
                         className={cn(
                           'mt-1.5 text-xs',
-                          stripeValidationMessage
+                          amountValidationMessage
                             ? 'text-destructive'
                             : 'text-muted-foreground'
                         )}
                       >
-                        {stripeValidationMessage ||
+                        {amountValidationMessage ||
                           t('Whole USD amounts from ${{min}} to ${{max}}.', {
                             min: stripeBounds.min,
                             max: stripeBounds.max,
@@ -460,11 +478,17 @@ export function RechargeFormCard({
                         const minTopup = method.min_topup || 0
                         const belowMethodMinimum = minTopup > topupAmount
                         const invalidStripeAmount =
-                          method.type === 'stripe' && stripeValidation !== null
+                          !hasFractionalAmount &&
+                          method.type === 'stripe' &&
+                          stripeValidation !== null
                         const disabled =
-                          belowMethodMinimum || invalidStripeAmount
+                          hasFractionalAmount ||
+                          belowMethodMinimum ||
+                          invalidStripeAmount
                         let disabledReason: string | undefined
-                        if (invalidStripeAmount) {
+                        if (hasFractionalAmount) {
+                          disabledReason = t('Amount must be a whole number')
+                        } else if (invalidStripeAmount) {
                           disabledReason =
                             stripeValidationMessage ||
                             t('Enter a valid USD amount.')
@@ -477,7 +501,9 @@ export function RechargeFormCard({
                           )
                         }
                         let disabledLabel: string | undefined
-                        if (disabled && method.type === 'stripe') {
+                        if (hasFractionalAmount) {
+                          disabledLabel = t('Amount must be a whole number')
+                        } else if (disabled && method.type === 'stripe') {
                           disabledLabel = t('${{min}}–${{max}} USD', {
                             min: stripeBounds.min,
                             max: stripeBounds.max,
@@ -561,14 +587,21 @@ export function RechargeFormCard({
                         const methodKey = `${method.payMethodType ?? 'unknown'}-${method.payMethodName ?? method.name}`
                         const waffoMin = waffoMinTopup || 0
                         const belowMin = waffoMin > topupAmount
-                        const disabledReason = belowMin
-                          ? t('Minimum topup amount: {{amount}}', {
+                        let disabledReason: string | undefined
+                        let disabledLabel: string | undefined
+                        if (hasFractionalAmount) {
+                          disabledReason = t('Amount must be a whole number')
+                          disabledLabel = disabledReason
+                        } else if (belowMin) {
+                          disabledReason = t(
+                            'Minimum topup amount: {{amount}}',
+                            {
                               amount: waffoMin,
-                            })
-                          : undefined
-                        const disabledLabel = belowMin
-                          ? `${t('Minimum:')} ${waffoMin}`
-                          : undefined
+                            }
+                          )
+                          disabledLabel = `${t('Minimum:')} ${waffoMin}`
+                        }
+                        const disabled = hasFractionalAmount || belowMin
 
                         let methodIcon = getPaymentIcon('waffo')
                         if (paymentLoading === loadingKey) {
@@ -590,7 +623,7 @@ export function RechargeFormCard({
                             key={methodKey}
                             variant='outline'
                             onClick={() => onWaffoMethodSelect(method, index)}
-                            disabled={belowMin || !!paymentLoading}
+                            disabled={disabled || !!paymentLoading}
                             title={disabledReason}
                             aria-label={
                               disabledReason
@@ -613,7 +646,7 @@ export function RechargeFormCard({
                           </Button>
                         )
 
-                        return belowMin ? (
+                        return disabled ? (
                           <TooltipProvider key={methodKey}>
                             <Tooltip>
                               <TooltipTrigger render={button} />

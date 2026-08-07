@@ -68,6 +68,12 @@ const stripeTopupInfo = {
   discount: {},
   enable_redemption: false,
 } satisfies TopupInfo
+const integerGatewayTopupInfo = {
+  ...stripeTopupInfo,
+  enable_online_topup: true,
+  enable_stripe_topup: false,
+  pay_methods: [{ name: 'Bank transfer', type: 'custom' }],
+} satisfies TopupInfo
 
 type RenderOptions = {
   topupAmount?: number
@@ -212,6 +218,34 @@ describe('wallet recharge form layout', () => {
 
     assert.equal(payButton?.disabled, true)
     assert.ok(payButton?.querySelector('svg.animate-spin'))
+
+    await unmountRechargeForm(rendered)
+  })
+
+  test('rejects fractional amounts for integer payment gateways', async () => {
+    let selectedMethod: PaymentMethod | undefined
+    const rendered = await renderRechargeForm({
+      topupAmount: 10.5,
+      paymentAmount: 0,
+      topupInfo: integerGatewayTopupInfo,
+      onPaymentMethodSelect: (method) => {
+        selectedMethod = method
+      },
+    })
+    const input =
+      rendered.container.querySelector<HTMLInputElement>('#topup-amount')
+    const paymentButton = [
+      ...rendered.container.querySelectorAll<HTMLButtonElement>('button'),
+    ].find((button) => button.textContent?.includes('Bank transfer'))
+
+    assert.equal(input?.getAttribute('aria-invalid'), 'true')
+    assert.equal(
+      rendered.container.textContent?.includes('Amount must be a whole number'),
+      true
+    )
+    assert.equal(paymentButton?.disabled, true)
+    paymentButton?.click()
+    assert.equal(selectedMethod, undefined)
 
     await unmountRechargeForm(rendered)
   })

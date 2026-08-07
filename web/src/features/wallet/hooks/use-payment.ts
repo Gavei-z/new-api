@@ -31,6 +31,7 @@ import {
 } from '../api'
 import {
   isStripePayment,
+  isIntegerTopupAmount,
   isWaffoPayment,
   isWaffoPancakePayment,
   submitPaymentForm,
@@ -62,6 +63,10 @@ export async function requestPaymentAmount(
   paymentType: string,
   calculators: PaymentAmountCalculators = defaultPaymentAmountCalculators
 ): Promise<number> {
+  if (!isIntegerTopupAmount(topupAmount)) {
+    return 0
+  }
+
   let calculator = calculators.regular
   if (isStripePayment(paymentType)) {
     calculator = calculators.stripe
@@ -111,16 +116,20 @@ export function usePayment() {
       try {
         setProcessing(true)
 
+        if (!isIntegerTopupAmount(topupAmount)) {
+          toast.error(i18next.t('Amount must be a whole number'))
+          return false
+        }
+
         const isStripe = isStripePayment(paymentType)
-        const amount = Math.floor(topupAmount)
 
         const response = isStripe
           ? await requestStripePayment({
-              amount,
+              amount: topupAmount,
               payment_method: 'stripe',
             })
           : await requestPayment({
-              amount,
+              amount: topupAmount,
               payment_method: paymentType,
             })
 

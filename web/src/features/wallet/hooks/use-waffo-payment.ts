@@ -21,6 +21,7 @@ import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
 
 import { requestWaffoPayment, isApiSuccess } from '../api'
+import { isIntegerTopupAmount } from '../lib'
 
 function getPaymentUrl(data: unknown): string | null {
   if (!data || typeof data !== 'object') {
@@ -53,8 +54,13 @@ export function useWaffoPayment() {
       setProcessing(true)
 
       try {
+        if (!isIntegerTopupAmount(topupAmount)) {
+          toast.error(i18next.t('Amount must be a whole number'))
+          return false
+        }
+
         const response = await requestWaffoPayment({
-          amount: Math.floor(topupAmount),
+          amount: topupAmount,
           pay_method_index: payMethodIndex,
         })
 

@@ -47,4 +47,35 @@ describe('payment amount routing', () => {
     assert.equal(amount, 18.75)
     assert.deepEqual(calls, ['waffo:120'])
   })
+
+  test('does not request a quote for a fractional top-up amount', async () => {
+    const calls: string[] = []
+    const calculators = {
+      regular: async () => {
+        calls.push('regular')
+        return { success: true, data: '1' }
+      },
+      stripe: async () => {
+        calls.push('stripe')
+        return { success: true, data: '2' }
+      },
+      waffo: async () => {
+        calls.push('waffo')
+        return { success: true, data: '3' }
+      },
+      waffoPancake: async () => {
+        calls.push('pancake')
+        return { success: true, data: '4' }
+      },
+    }
+
+    const amount = await requestPaymentAmount(
+      10.5,
+      PAYMENT_TYPES.WAFFO,
+      calculators
+    )
+
+    assert.equal(amount, 0)
+    assert.deepEqual(calls, [])
+  })
 })

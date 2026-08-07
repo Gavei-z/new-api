@@ -359,7 +359,7 @@
     "Amount cannot be changed when editing.": "編輯時無法更改數量。",
     "Amount discount": "金額折扣",
     "Amount Due": "應付金額",
-    "Amount must be a whole number": "金額必須為整數",
+    "Amount must be a whole number": "僅支援整數金額",
     "Amount must be greater than 0": "金額必須大於 0",
     "Amount of quota to credit to user account.": "添加到用戶用戶的配額數量。",
     "Amount options must be a JSON array": "金額選項必須是 JSON 陣列",
