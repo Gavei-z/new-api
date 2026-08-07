@@ -149,6 +149,14 @@ export function RechargeFormCard({
   const stripeValidation = validateStripeTopupAmount(topupAmount, stripeBounds)
   const hasUsdStripe = topupInfo?.enable_stripe_topup === true
   const redemptionEnabled = topupInfo?.enable_redemption !== false
+  let singleStripePaymentMethod: PaymentMethod | null = null
+  if (
+    hasUsdStripe &&
+    topupInfo?.pay_methods?.length === 1 &&
+    topupInfo.pay_methods[0]?.type === 'stripe'
+  ) {
+    singleStripePaymentMethod = topupInfo.pay_methods[0]
+  }
 
   let stripeValidationMessage = ''
   if (stripeValidation === 'integer') {
@@ -168,6 +176,18 @@ export function RechargeFormCard({
   if (hasUsdStripe) {
     displayedPaymentAmount =
       stripeValidation === null ? `${formatUsdAmount(paymentAmount)} USD` : '—'
+  }
+  let singlePaymentDisabledReason = ''
+  if (singleStripePaymentMethod && stripeValidation !== null) {
+    singlePaymentDisabledReason =
+      stripeValidationMessage || t('Enter a valid USD amount.')
+  } else if (
+    singleStripePaymentMethod?.min_topup &&
+    singleStripePaymentMethod.min_topup > topupAmount
+  ) {
+    singlePaymentDisabledReason = t('Minimum topup amount: {{amount}}', {
+      amount: singleStripePaymentMethod.min_topup,
+    })
   }
 
   if (loading) {
@@ -224,7 +244,11 @@ export function RechargeFormCard({
   return (
     <TitledCard
       title={t('Add Funds')}
-      description={t('Choose an amount and payment method')}
+      description={
+        singleStripePaymentMethod
+          ? undefined
+          : t('Choose an amount and payment method')
+      }
       icon={<WalletCards className='h-4 w-4' />}
       iconTone='success'
       disableHoverEffect
@@ -323,14 +347,22 @@ export function RechargeFormCard({
                 </div>
               )}
 
-              <div className='space-y-2.5 sm:space-y-3'>
-                <Label
-                  htmlFor='topup-amount'
-                  className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
+              <div
+                data-slot='wallet-amount-entry'
+                className='grid max-w-2xl grid-cols-1 gap-3 sm:grid-cols-[minmax(0,18rem)_minmax(0,16rem)] sm:items-start'
+              >
+                <div
+                  data-slot='wallet-custom-amount-field'
+                  className='space-y-2.5'
                 >
-                  {hasUsdStripe ? t('Custom Amount (USD)') : t('Custom Amount')}
-                </Label>
-                <div className='grid grid-cols-[minmax(0,1fr)_minmax(110px,0.55fr)] gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center'>
+                  <Label
+                    htmlFor='topup-amount'
+                    className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
+                  >
+                    {hasUsdStripe
+                      ? t('Custom Amount (USD)')
+                      : t('Custom Amount')}
+                  </Label>
                   <div>
                     <Input
                       id='topup-amount'
@@ -357,7 +389,7 @@ export function RechargeFormCard({
                             })
                           : `Minimum ${minTopup}`
                       }
-                      className='h-9 text-base sm:h-10 sm:text-lg'
+                      className='h-10 text-base sm:text-lg'
                     />
                     {hasUsdStripe && (
                       <p
@@ -377,14 +409,19 @@ export function RechargeFormCard({
                       </p>
                     )}
                   </div>
-                  <div className='bg-muted/30 flex min-h-9 items-center justify-between gap-2 rounded-md border px-3 lg:min-w-52'>
-                    <span className='text-muted-foreground truncate text-xs'>
-                      {t('Amount to pay:')}
-                    </span>
+                </div>
+                <div data-slot='wallet-payment-total' className='space-y-2.5'>
+                  <p className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
+                    {t('Amount to pay:')}
+                  </p>
+                  <div
+                    data-slot='wallet-payment-total-display'
+                    className='bg-muted/30 flex h-10 items-center justify-end rounded-lg border px-3'
+                  >
                     {calculating ? (
                       <Skeleton className='h-5 w-16' />
                     ) : (
-                      <span className='text-sm font-semibold'>
+                      <span className='text-base font-semibold'>
                         {displayedPaymentAmount}
                       </span>
                     )}
@@ -392,98 +429,124 @@ export function RechargeFormCard({
                 </div>
               </div>
 
-              <div className='space-y-2.5 sm:space-y-3'>
-                <Label className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
-                  {t('Payment Method')}
-                </Label>
-                {hasStandardPaymentMethods ? (
-                  <div className='grid grid-cols-2 gap-1.5 sm:gap-3 lg:grid-cols-3'>
-                    {topupInfo?.pay_methods?.map((method) => {
-                      const minTopup = method.min_topup || 0
-                      const belowMethodMinimum = minTopup > topupAmount
-                      const invalidStripeAmount =
-                        method.type === 'stripe' && stripeValidation !== null
-                      const disabled = belowMethodMinimum || invalidStripeAmount
-                      let disabledReason: string | undefined
-                      if (invalidStripeAmount) {
-                        disabledReason =
-                          stripeValidationMessage ||
-                          t('Enter a valid USD amount.')
-                      } else if (belowMethodMinimum) {
-                        disabledReason = t('Minimum topup amount: {{amount}}', {
-                          amount: minTopup,
-                        })
-                      }
-                      let disabledLabel: string | undefined
-                      if (disabled && method.type === 'stripe') {
-                        disabledLabel = t('${{min}}–${{max}} USD', {
-                          min: stripeBounds.min,
-                          max: stripeBounds.max,
-                        })
-                      } else if (disabled) {
-                        disabledLabel = `${t('Minimum:')} ${minTopup}`
-                      }
+              {singleStripePaymentMethod ? (
+                <Button
+                  data-slot='wallet-primary-payment-button'
+                  onClick={() =>
+                    onPaymentMethodSelect(singleStripePaymentMethod)
+                  }
+                  disabled={!!singlePaymentDisabledReason || !!paymentLoading}
+                  title={singlePaymentDisabledReason || undefined}
+                  aria-label={
+                    singlePaymentDisabledReason
+                      ? `${t('Pay')}. ${singlePaymentDisabledReason}`
+                      : t('Pay')
+                  }
+                  className='h-10 w-full sm:w-auto sm:min-w-56'
+                >
+                  {paymentLoading === singleStripePaymentMethod.type && (
+                    <Loader2 className='h-4 w-4 animate-spin' />
+                  )}
+                  {t('Pay')}
+                </Button>
+              ) : (
+                <div className='space-y-2.5 sm:space-y-3'>
+                  <Label className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
+                    {t('Payment Method')}
+                  </Label>
+                  {hasStandardPaymentMethods ? (
+                    <div className='grid grid-cols-2 gap-1.5 sm:gap-3 lg:grid-cols-3'>
+                      {topupInfo?.pay_methods?.map((method) => {
+                        const minTopup = method.min_topup || 0
+                        const belowMethodMinimum = minTopup > topupAmount
+                        const invalidStripeAmount =
+                          method.type === 'stripe' && stripeValidation !== null
+                        const disabled =
+                          belowMethodMinimum || invalidStripeAmount
+                        let disabledReason: string | undefined
+                        if (invalidStripeAmount) {
+                          disabledReason =
+                            stripeValidationMessage ||
+                            t('Enter a valid USD amount.')
+                        } else if (belowMethodMinimum) {
+                          disabledReason = t(
+                            'Minimum topup amount: {{amount}}',
+                            {
+                              amount: minTopup,
+                            }
+                          )
+                        }
+                        let disabledLabel: string | undefined
+                        if (disabled && method.type === 'stripe') {
+                          disabledLabel = t('${{min}}–${{max}} USD', {
+                            min: stripeBounds.min,
+                            max: stripeBounds.max,
+                          })
+                        } else if (disabled) {
+                          disabledLabel = `${t('Minimum:')} ${minTopup}`
+                        }
 
-                      const button = (
-                        <Button
-                          key={method.type}
-                          variant='outline'
-                          onClick={() => onPaymentMethodSelect(method)}
-                          disabled={disabled || !!paymentLoading}
-                          title={disabledReason}
-                          aria-label={
-                            disabledReason
-                              ? `${method.name}. ${disabledReason}`
-                              : method.name
-                          }
-                          className='min-h-14 min-w-0 justify-start gap-2 rounded-lg px-3 py-2 text-left'
-                        >
-                          {paymentLoading === method.type ? (
-                            <Loader2 className='h-4 w-4 animate-spin' />
-                          ) : (
-                            getPaymentIcon(
-                              method.type,
-                              'h-4 w-4',
-                              method.icon,
-                              method.name
-                            )
-                          )}
-                          <span className='flex min-w-0 flex-col items-start gap-0.5'>
-                            <span className='max-w-full truncate'>
-                              {method.name}
-                            </span>
-                            {disabledLabel && (
-                              <span className='text-muted-foreground max-w-full truncate text-[11px] leading-4 font-normal'>
-                                {disabledLabel}
-                              </span>
+                        const button = (
+                          <Button
+                            key={method.type}
+                            variant='outline'
+                            onClick={() => onPaymentMethodSelect(method)}
+                            disabled={disabled || !!paymentLoading}
+                            title={disabledReason}
+                            aria-label={
+                              disabledReason
+                                ? `${method.name}. ${disabledReason}`
+                                : method.name
+                            }
+                            className='min-h-14 min-w-0 justify-start gap-2 rounded-lg px-3 py-2 text-left'
+                          >
+                            {paymentLoading === method.type ? (
+                              <Loader2 className='h-4 w-4 animate-spin' />
+                            ) : (
+                              getPaymentIcon(
+                                method.type,
+                                'h-4 w-4',
+                                method.icon,
+                                method.name
+                              )
                             )}
-                          </span>
-                        </Button>
-                      )
+                            <span className='flex min-w-0 flex-col items-start gap-0.5'>
+                              <span className='max-w-full truncate'>
+                                {method.name}
+                              </span>
+                              {disabledLabel && (
+                                <span className='text-muted-foreground max-w-full truncate text-[11px] leading-4 font-normal'>
+                                  {disabledLabel}
+                                </span>
+                              )}
+                            </span>
+                          </Button>
+                        )
 
-                      return disabled ? (
-                        <TooltipProvider key={method.type}>
-                          <Tooltip>
-                            <TooltipTrigger render={button} />
-                            <TooltipContent>{disabledReason}</TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      ) : (
-                        button
-                      )
-                    })}
-                  </div>
-                ) : null}
-                {!hasStandardPaymentMethods && !hasWaffoPaymentMethods && (
-                  <Alert>
-                    <AlertDescription>
-                      {t(
-                        'No payment methods available. Please contact administrator.'
-                      )}
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </div>
+                        return disabled ? (
+                          <TooltipProvider key={method.type}>
+                            <Tooltip>
+                              <TooltipTrigger render={button} />
+                              <TooltipContent>{disabledReason}</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : (
+                          button
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                  {!hasStandardPaymentMethods && !hasWaffoPaymentMethods && (
+                    <Alert>
+                      <AlertDescription>
+                        {t(
+                          'No payment methods available. Please contact administrator.'
+                        )}
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+              )}
 
               {enableWaffoTopup &&
                 hasWaffoPaymentMethods &&
