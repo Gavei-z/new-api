@@ -331,6 +331,10 @@ func GetAllUsers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := model.PopulateUsersPrepaidBalance(users); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
@@ -361,6 +365,10 @@ func SearchUsers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := model.PopulateUsersPrepaidBalance(users); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
@@ -386,6 +394,10 @@ func GetUser(c *gin.Context) {
 	myRole := c.GetInt("role")
 	if !canManageTargetRole(myRole, user.Role) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionSameLevel)
+		return
+	}
+	if err := model.PopulateUserPrepaidBalance(user); err != nil {
+		common.ApiError(c, err)
 		return
 	}
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
@@ -1097,10 +1109,26 @@ func updateAdminPermissionsForUserInTx(c *gin.Context, tx *gorm.DB, userID int, 
 }
 
 type ManageRequest struct {
-	Id     int    `json:"id"`
-	Action string `json:"action"`
-	Value  int    `json:"value"`
-	Mode   string `json:"mode"`
+	Id             int    `json:"id"`
+	Action         string `json:"action"`
+	Value          *int64 `json:"value"`
+	Mode           string `json:"mode"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+func userQuotaAdjustmentIdempotencyKey(c *gin.Context, req ManageRequest) (string, error) {
+	rawKey := strings.TrimSpace(req.IdempotencyKey)
+	if rawKey == "" {
+		return "", fmt.Errorf("quota adjustment idempotency key is required")
+	}
+	if len(rawKey) < 8 || len(rawKey) > 128 {
+		return "", fmt.Errorf("invalid quota adjustment idempotency key")
+	}
+	key := fmt.Sprintf("user-admin:%d:%d:%s", req.Id, c.GetInt("id"), rawKey)
+	if len(key) > 191 {
+		return "", fmt.Errorf("invalid quota adjustment idempotency key")
+	}
+	return key, nil
 }
 
 // ManageUser Only admin user can do this
@@ -1192,6 +1220,11 @@ func ManageUser(c *gin.Context) {
 		}
 		user.Role = common.RoleCommonUser
 	case "add_quota":
+		if req.Value == nil {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		value := *req.Value
 		isTeamMember, membershipErr := model.IsTeamMember(user.Id)
 		if membershipErr != nil {
 			common.ApiError(c, membershipErr)
@@ -1202,47 +1235,75 @@ func ManageUser(c *gin.Context) {
 			return
 		}
 		switch req.Mode {
-		case "add":
-			if req.Value <= 0 {
+		case model.UserQuotaAdjustmentAdd, model.UserQuotaAdjustmentSubtract:
+			if value <= 0 {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
 				return
 			}
-			if err := model.IncreaseUserQuota(user.Id, req.Value, true); err != nil {
-				common.ApiError(c, err)
+		case model.UserQuotaAdjustmentOverride:
+			if value < 0 {
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 				return
 			}
-			recordManageAuditFor(c, user.Id, "user.quota_add", map[string]interface{}{
-				"quota": logger.LogQuota(req.Value),
-			})
-		case "subtract":
-			if req.Value <= 0 {
-				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
-				return
-			}
-			if err := model.DecreaseUserQuota(user.Id, req.Value, true); err != nil {
-				common.ApiError(c, err)
-				return
-			}
-			recordManageAuditFor(c, user.Id, "user.quota_subtract", map[string]interface{}{
-				"quota": logger.LogQuota(req.Value),
-			})
-		case "override":
-			oldQuota := user.Quota
-			if err := model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", req.Value).Error; err != nil {
-				common.ApiError(c, err)
-				return
-			}
-			recordManageAuditFor(c, user.Id, "user.quota_override", map[string]interface{}{
-				"from": logger.LogQuota(oldQuota),
-				"to":   logger.LogQuota(req.Value),
-			})
 		default:
 			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 			return
 		}
+		idempotencyKey, keyErr := userQuotaAdjustmentIdempotencyKey(c, req)
+		if keyErr != nil {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		result, adjustmentErr := model.ApplyUserQuotaAdjustment(model.UserQuotaAdjustment{
+			TargetUserId:   user.Id,
+			ActorUserId:    c.GetInt("id"),
+			Mode:           req.Mode,
+			Value:          value,
+			IdempotencyKey: idempotencyKey,
+			Note: fmt.Sprintf(
+				"Administrator quota %s by %s",
+				req.Mode,
+				c.GetString("username"),
+			),
+		})
+		if adjustmentErr != nil {
+			common.ApiError(c, adjustmentErr)
+			return
+		}
+		if result.Applied {
+			totalBefore := result.Balance.TotalQuota - result.QuotaDelta
+			activeBefore := result.Balance.ActiveQuota - result.ActiveQuotaDelta
+			reserveBefore := result.Balance.ReserveQuota - result.ReserveQuotaDelta
+			auditParams := map[string]interface{}{
+				"value":           logger.LogQuota64(value),
+				"quota":           logger.LogQuota64(value),
+				"from":            logger.LogQuota64(totalBefore),
+				"to":              logger.LogQuota64(result.Balance.TotalQuota),
+				"active_from":     logger.LogQuota64(activeBefore),
+				"active_to":       logger.LogQuota64(result.Balance.ActiveQuota),
+				"reserve_from":    logger.LogQuota64(reserveBefore),
+				"reserve_to":      logger.LogQuota64(result.Balance.ReserveQuota),
+				"idempotency_key": idempotencyKey,
+			}
+			action := "user.quota_" + req.Mode
+			recordManageAuditFor(c, user.Id, action, auditParams)
+		} else {
+			// The original application was already audited. Mark a successful
+			// idempotent replay so the middleware does not add a duplicate
+			// generic management log.
+			markAuditLogged(c)
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"message": "",
+			"data": gin.H{
+				"applied":                   result.Applied,
+				"quota":                     result.Balance.ActiveQuota,
+				"active_quota":              result.Balance.ActiveQuota,
+				"reserve_quota":             result.Balance.ReserveQuota,
+				"total_quota":               result.Balance.TotalQuota,
+				"cache_invalidation_failed": result.CacheInvalidationFailed,
+			},
 		})
 		return
 	default:

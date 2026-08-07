@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -25,10 +25,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
-import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
+import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { adjustUserQuota } from '../api'
+import {
+  createQuotaAdjustmentIdempotencyKey,
+  getQuotaAdjustmentValue,
+} from '../lib/quota-adjustment'
 import type { QuotaAdjustMode } from '../types'
 
 interface UserQuotaDialogProps {
@@ -44,13 +48,15 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const [mode, setMode] = useState<QuotaAdjustMode>('add')
   const [amount, setAmount] = useState('')
   const [loading, setLoading] = useState(false)
+  const idempotencyKeyRef = useRef<string | null>(null)
 
   const { meta: currencyMeta } = getCurrencyDisplay()
   const currencyLabel = getCurrencyLabel()
   const tokensOnly = currencyMeta.kind === 'tokens'
 
-  const amountValue = parseFloat(amount) || 0
-  const quotaValue = parseQuotaFromDollars(Math.abs(amountValue))
+  const parsedQuotaValue = getQuotaAdjustmentValue(amount, mode)
+  const quotaValue = parsedQuotaValue ?? 0
+  const amountIsValid = parsedQuotaValue !== null
 
   const getPreviewText = () => {
     const current = props.currentQuota
@@ -61,8 +67,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
       case 'subtract':
         return `${t('Current quota')}: ${formatQuota(current)}  -${formatQuota(val)} = ${formatQuota(current - val)}`
       case 'override': {
-        const overrideQuota = parseQuotaFromDollars(amountValue)
-        return `${t('Current quota')}: ${formatQuota(current)} → ${formatQuota(overrideQuota)}`
+        return `${t('Current quota')}: ${formatQuota(current)} → ${formatQuota(quotaValue)}`
       }
       default:
         return ''
@@ -70,21 +75,30 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   }
 
   const handleConfirm = async () => {
-    if (!amount && mode !== 'override') return
-    if (quotaValue <= 0 && mode !== 'override') return
+    if (loading) return
+    if (!amountIsValid || parsedQuotaValue === null) return
 
+    const idempotencyKey =
+      idempotencyKeyRef.current ?? createQuotaAdjustmentIdempotencyKey()
+    idempotencyKeyRef.current = idempotencyKey
     setLoading(true)
     try {
-      const value =
-        mode === 'override' ? parseQuotaFromDollars(amountValue) : quotaValue
       const result = await adjustUserQuota({
         id: props.userId,
         action: 'add_quota',
         mode,
-        value: mode === 'override' ? value : Math.abs(value),
+        value: parsedQuotaValue,
+        idempotency_key: idempotencyKey,
       })
       if (result.success) {
-        toast.success(t('Quota adjusted successfully'))
+        if (result.data?.cache_invalidation_failed) {
+          toast.warning(
+            t('Quota was adjusted, but cache synchronization is still pending')
+          )
+        } else {
+          toast.success(t('Quota adjusted successfully'))
+        }
+        idempotencyKeyRef.current = null
         setAmount('')
         setMode('add')
         props.onOpenChange(false)
@@ -100,6 +114,8 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   }
 
   const handleCancel = () => {
+    if (loading) return
+    idempotencyKeyRef.current = null
     setAmount('')
     setMode('add')
     props.onOpenChange(false)
@@ -108,21 +124,31 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const placeholder = tokensOnly
     ? t('Enter amount in tokens')
     : t('Enter amount in {{currency}}', { currency: currencyLabel })
+  const modeLabels: Record<QuotaAdjustMode, string> = {
+    add: t('Add'),
+    subtract: t('Subtract'),
+    override: t('Override'),
+  }
 
   return (
     <Dialog
       open={props.open}
-      onOpenChange={props.onOpenChange}
+      onOpenChange={(open) => {
+        if (!open && loading) return
+        if (!open) idempotencyKeyRef.current = null
+        props.onOpenChange(open)
+      }}
       title={t('Adjust Quota')}
       description={t('Select an operation mode and enter the amount')}
+      showCloseButton={!loading}
       contentHeight='auto'
       bodyClassName='space-y-4'
       footer={
         <>
-          <Button variant='outline' onClick={handleCancel}>
+          <Button variant='outline' onClick={handleCancel} disabled={loading}>
             {t('Cancel')}
           </Button>
-          <Button onClick={handleConfirm} disabled={loading}>
+          <Button onClick={handleConfirm} disabled={loading || !amountIsValid}>
             {loading ? t('Processing...') : t('Confirm')}
           </Button>
         </>
@@ -140,20 +166,18 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
                 type='button'
                 variant='outline'
                 size='sm'
+                disabled={loading}
                 className={cn(
                   mode === m &&
                     'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground'
                 )}
                 onClick={() => {
+                  idempotencyKeyRef.current = null
                   setMode(m)
                   setAmount('')
                 }}
               >
-                {m === 'add'
-                  ? t('Add')
-                  : m === 'subtract'
-                    ? t('Subtract')
-                    : t('Override')}
+                {modeLabels[m]}
               </Button>
             ))}
           </div>
@@ -166,10 +190,14 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
           <Input
             type='number'
             step={tokensOnly ? 1 : 0.000001}
-            min={mode === 'override' ? undefined : 0}
+            min={0}
+            disabled={loading}
             placeholder={placeholder}
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => {
+              idempotencyKeyRef.current = null
+              setAmount(e.target.value)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleConfirm()
             }}

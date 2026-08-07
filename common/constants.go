@@ -121,7 +121,10 @@ var TurnstileSecretKey = ""
 var TelegramBotToken = ""
 var TelegramBotName = ""
 
-var QuotaForNewUser = 0
+// Every new personal account receives one US dollar of signup credit by default.
+// Keep this aligned with QuotaPerUnit so every registration path can apply the
+// credit atomically while creating the user.
+var QuotaForNewUser = int(QuotaPerUnit)
 var QuotaForInviter = 0
 var QuotaForInvitee = 0
 var ChannelDisableThreshold = 5.0

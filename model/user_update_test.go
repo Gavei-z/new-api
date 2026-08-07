@@ -153,6 +153,44 @@ func TestInsertKeepsBlankPasswordForPasswordlessUser(t *testing.T) {
 	assert.Empty(t, stored.Password)
 }
 
+func TestInsertGrantsOneDollarSignupCredit(t *testing.T) {
+	setupUserUpdateTestState(t)
+	require.Equal(t, int(common.QuotaPerUnit), common.QuotaForNewUser)
+
+	user := &User{
+		Username: "signup-credit-user",
+		Password: "password123",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+	}
+	require.NoError(t, user.Insert(0))
+
+	var stored User
+	require.NoError(t, DB.First(&stored, user.Id).Error)
+	assert.Equal(t, int(common.QuotaPerUnit), stored.Quota)
+}
+
+func TestInsertWithTxRollsBackSignupCreditWithUser(t *testing.T) {
+	setupUserUpdateTestState(t)
+
+	tx := DB.Begin()
+	require.NoError(t, tx.Error)
+	user := &User{
+		Username: "signup-credit-rollback-user",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+	}
+	require.NoError(t, user.InsertWithTx(tx, 0))
+	assert.Equal(t, int(common.QuotaPerUnit), user.Quota)
+	require.NoError(t, tx.Rollback().Error)
+
+	var count int64
+	require.NoError(t, DB.Model(&User{}).
+		Where("username = ?", user.Username).
+		Count(&count).Error)
+	assert.Zero(t, count)
+}
+
 func TestValidateAndFillRejectsPasswordlessUser(t *testing.T) {
 	setupUserUpdateTestState(t)
 

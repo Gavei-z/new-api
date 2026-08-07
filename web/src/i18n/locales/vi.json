@@ -3615,6 +3615,7 @@
     "Quota": "Hạn ngạch",
     "Quota ({{currency}})": "Hạn mức ({{currency}})",
     "Quota adjusted successfully": "Điều chỉnh hạn mức thành công",
+    "Quota was adjusted, but cache synchronization is still pending": "Hạn mức đã được điều chỉnh nhưng đồng bộ bộ nhớ đệm vẫn đang chờ",
     "Quota clamped": "Hạn ngạch bị giới hạn",
     "Quota consumed before charging users": "Hạn mức tiêu thụ trước khi tính phí người dùng",
     "Quota Distribution": "Phân bổ hạn ngạch",

@@ -14,10 +14,17 @@ const (
 	PrepaidTargetUser = "user"
 	PrepaidTargetTeam = "team"
 
-	PrepaidTransactionCredit      = "credit"
-	PrepaidTransactionReversal    = "reversal"
-	PrepaidTransactionRestoration = "restoration"
-	PrepaidTransactionRelease     = "release"
+	PrepaidTransactionCredit        = "credit"
+	PrepaidTransactionReversal      = "reversal"
+	PrepaidTransactionRestoration   = "restoration"
+	PrepaidTransactionRelease       = "release"
+	PrepaidTransactionAdminCredit   = "admin_credit"
+	PrepaidTransactionAdminDebit    = "admin_debit"
+	PrepaidTransactionAdminOverride = "admin_override"
+
+	UserQuotaAdjustmentAdd      = "add"
+	UserQuotaAdjustmentSubtract = "subtract"
+	UserQuotaAdjustmentOverride = "override"
 )
 
 var (
@@ -67,6 +74,29 @@ type PrepaidBalance struct {
 	ActiveQuota  int64 `json:"active_quota"`
 	ReserveQuota int64 `json:"reserve_quota"`
 	TotalQuota   int64 `json:"total_quota"`
+}
+
+// UserQuotaAdjustment describes one administrator-authored change to a
+// personal wallet's total balance. Value is a positive delta for add/subtract
+// and the desired total balance for override.
+type UserQuotaAdjustment struct {
+	TargetUserId   int
+	ActorUserId    int
+	Mode           string
+	Value          int64
+	IdempotencyKey string
+	Note           string
+}
+
+// UserQuotaAdjustmentResult reports the committed bucket split. Applied is
+// false for a successful idempotent replay.
+type UserQuotaAdjustmentResult struct {
+	Applied                 bool           `json:"applied"`
+	Balance                 PrepaidBalance `json:"balance"`
+	QuotaDelta              int64          `json:"quota_delta"`
+	ActiveQuotaDelta        int64          `json:"active_quota_delta"`
+	ReserveQuotaDelta       int64          `json:"reserve_quota_delta"`
+	CacheInvalidationFailed bool           `json:"cache_invalidation_failed,omitempty"`
 }
 
 // TeamBalanceTransactionView normalizes the legacy active-quota ledger and
@@ -278,6 +308,264 @@ func createPrepaidTransactionTx(
 		IdempotencyKey:      strings.TrimSpace(idempotencyKey),
 		Note:                prepaidNote(note),
 	}).Error
+}
+
+func userQuotaAdjustmentTransactionType(mode string) (string, error) {
+	switch mode {
+	case UserQuotaAdjustmentAdd:
+		return PrepaidTransactionAdminCredit, nil
+	case UserQuotaAdjustmentSubtract:
+		return PrepaidTransactionAdminDebit, nil
+	case UserQuotaAdjustmentOverride:
+		return PrepaidTransactionAdminOverride, nil
+	default:
+		return "", ErrPrepaidQuotaInvalid
+	}
+}
+
+func userQuotaAdjustmentResultFromTransaction(
+	transaction *PrepaidReserveTransaction,
+	applied bool,
+) UserQuotaAdjustmentResult {
+	return UserQuotaAdjustmentResult{
+		Applied: applied,
+		Balance: PrepaidBalance{
+			ActiveQuota:  transaction.ActiveBalanceAfter,
+			ReserveQuota: transaction.ReserveBalanceAfter,
+			TotalQuota:   transaction.TotalBalanceAfter,
+		},
+		QuotaDelta:        transaction.QuotaDelta,
+		ActiveQuotaDelta:  transaction.ActiveQuotaDelta,
+		ReserveQuotaDelta: transaction.ReserveQuotaDelta,
+	}
+}
+
+// ApplyUserQuotaAdjustment atomically adjusts a personal wallet across its
+// active and reserve buckets and writes an immutable financial ledger entry.
+// Subtractions are all-or-nothing and idempotent retries never apply twice.
+func ApplyUserQuotaAdjustment(
+	adjustment UserQuotaAdjustment,
+) (UserQuotaAdjustmentResult, error) {
+	var result UserQuotaAdjustmentResult
+	if err := validatePrepaidTarget(PrepaidTargetUser, adjustment.TargetUserId); err != nil {
+		return result, err
+	}
+	if adjustment.ActorUserId <= 0 {
+		return result, ErrPrepaidTargetInvalid
+	}
+	transactionType, err := userQuotaAdjustmentTransactionType(adjustment.Mode)
+	if err != nil {
+		return result, err
+	}
+	switch adjustment.Mode {
+	case UserQuotaAdjustmentAdd, UserQuotaAdjustmentSubtract:
+		if adjustment.Value <= 0 {
+			return result, ErrPrepaidQuotaInvalid
+		}
+	case UserQuotaAdjustmentOverride:
+		if adjustment.Value < 0 {
+			return result, ErrPrepaidQuotaInvalid
+		}
+	}
+	adjustment.IdempotencyKey = strings.TrimSpace(adjustment.IdempotencyKey)
+	if err := validatePrepaidIdempotencyKey(adjustment.IdempotencyKey); err != nil {
+		return result, err
+	}
+
+	lock := userQuotaMutationLock(adjustment.TargetUserId)
+	lock.Lock()
+	defer lock.Unlock()
+
+	var quotaVersion int64
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		if existing, findErr := findPrepaidTransactionTx(tx, adjustment.IdempotencyKey); findErr == nil {
+			if validateErr := validateExistingPrepaidTransaction(
+				existing,
+				PrepaidTargetUser,
+				adjustment.TargetUserId,
+				adjustment.ActorUserId,
+				transactionType,
+				adjustment.Value,
+			); validateErr != nil {
+				return validateErr
+			}
+			result = userQuotaAdjustmentResultFromTransaction(existing, false)
+			var versionErr error
+			quotaVersion, versionErr = loadUserQuotaVersionTx(
+				tx,
+				adjustment.TargetUserId,
+				false,
+			)
+			return versionErr
+		} else if !errors.Is(findErr, gorm.ErrRecordNotFound) {
+			return findErr
+		}
+
+		activeBefore, loadErr := loadPrepaidActiveQuotaTx(
+			tx,
+			PrepaidTargetUser,
+			adjustment.TargetUserId,
+			true,
+		)
+		if loadErr != nil {
+			return loadErr
+		}
+		// Recheck after acquiring the user row lock. Another replica may have
+		// committed this idempotency key while this transaction was waiting.
+		if existing, findErr := findPrepaidTransactionForUpdateTx(
+			tx,
+			adjustment.IdempotencyKey,
+		); findErr == nil {
+			if validateErr := validateExistingPrepaidTransaction(
+				existing,
+				PrepaidTargetUser,
+				adjustment.TargetUserId,
+				adjustment.ActorUserId,
+				transactionType,
+				adjustment.Value,
+			); validateErr != nil {
+				return validateErr
+			}
+			result = userQuotaAdjustmentResultFromTransaction(existing, false)
+			var versionErr error
+			quotaVersion, versionErr = loadUserQuotaVersionTx(
+				tx,
+				adjustment.TargetUserId,
+				false,
+			)
+			return versionErr
+		} else if !errors.Is(findErr, gorm.ErrRecordNotFound) {
+			return findErr
+		}
+
+		reserve, loadErr := loadOrCreatePrepaidReserveTx(
+			tx,
+			PrepaidTargetUser,
+			adjustment.TargetUserId,
+		)
+		if loadErr != nil {
+			return loadErr
+		}
+		maxInt64 := int64(^uint64(0) >> 1)
+		if activeBefore > maxInt64-reserve.Quota {
+			return ErrPrepaidBalanceOutOfRange
+		}
+		totalBefore := activeBefore + reserve.Quota
+		activeAfter := activeBefore
+		reserveAfter := reserve.Quota
+
+		switch adjustment.Mode {
+		case UserQuotaAdjustmentAdd:
+			if adjustment.Value > maxInt64-totalBefore {
+				return ErrPrepaidBalanceOutOfRange
+			}
+			activeHeadroom := int64(0)
+			if activeBefore < prepaidActiveRefillTarget {
+				activeHeadroom = prepaidActiveRefillTarget - activeBefore
+			}
+			activeCredit := adjustment.Value
+			if activeCredit > activeHeadroom {
+				activeCredit = activeHeadroom
+			}
+			activeAfter += activeCredit
+			reserveAfter += adjustment.Value - activeCredit
+		case UserQuotaAdjustmentSubtract:
+			if adjustment.Value > totalBefore {
+				return ErrUserQuotaInsufficient
+			}
+			reserveDebit := adjustment.Value
+			if reserveDebit > reserveAfter {
+				reserveDebit = reserveAfter
+			}
+			reserveAfter -= reserveDebit
+			activeAfter -= adjustment.Value - reserveDebit
+		case UserQuotaAdjustmentOverride:
+			activeAfter = adjustment.Value
+			if activeAfter > prepaidActiveRefillTarget {
+				activeAfter = prepaidActiveRefillTarget
+			}
+			reserveAfter = adjustment.Value - activeAfter
+		}
+
+		activeDelta := activeAfter - activeBefore
+		reserveDelta := reserveAfter - reserve.Quota
+		totalAfter := activeAfter + reserveAfter
+		quotaDelta := totalAfter - totalBefore
+		nextQuotaVersion, versionErr := incrementUserQuotaVersionWithTx(
+			tx,
+			adjustment.TargetUserId,
+		)
+		if versionErr != nil {
+			return versionErr
+		}
+		quotaVersion = nextQuotaVersion
+		if err := updatePrepaidActiveQuotaTx(
+			tx,
+			PrepaidTargetUser,
+			adjustment.TargetUserId,
+			activeAfter,
+		); err != nil {
+			return err
+		}
+		if err := savePrepaidReserveTx(tx, reserve, reserveAfter); err != nil {
+			return err
+		}
+		if err := createPrepaidTransactionTx(
+			tx,
+			PrepaidTargetUser,
+			adjustment.TargetUserId,
+			adjustment.ActorUserId,
+			transactionType,
+			adjustment.Value,
+			quotaDelta,
+			activeDelta,
+			reserveDelta,
+			activeAfter,
+			reserveAfter,
+			0,
+			adjustment.IdempotencyKey,
+			adjustment.Note,
+		); err != nil {
+			return err
+		}
+		result = UserQuotaAdjustmentResult{
+			Applied: true,
+			Balance: PrepaidBalance{
+				ActiveQuota:  activeAfter,
+				ReserveQuota: reserveAfter,
+				TotalQuota:   totalAfter,
+			},
+			QuotaDelta:        quotaDelta,
+			ActiveQuotaDelta:  activeDelta,
+			ReserveQuotaDelta: reserveDelta,
+		}
+		return nil
+	})
+	if err != nil {
+		return UserQuotaAdjustmentResult{}, err
+	}
+	// Publishing the committed version atomically removes any older cache
+	// snapshot. If Redis becomes unavailable after commit, the longer-lived
+	// pending fence remains fail-closed until every old hash has expired.
+	var publishErr error
+	for range 3 {
+		publishErr = publishCommittedUserQuotaVersion(
+			adjustment.TargetUserId,
+			quotaVersion,
+		)
+		if publishErr == nil {
+			break
+		}
+	}
+	if publishErr != nil {
+		result.CacheInvalidationFailed = true
+		common.SysLog(fmt.Sprintf(
+			"user quota adjustment committed but quota cache version publish failed for user %d: %s",
+			adjustment.TargetUserId,
+			publishErr.Error(),
+		))
+	}
+	return result, nil
 }
 
 func applyPrepaidCreditTx(
@@ -524,6 +812,74 @@ func GetPrepaidBalance(targetType string, targetId int) (PrepaidBalance, error) 
 		return nil
 	})
 	return balance, err
+}
+
+// PopulateUsersPrepaidBalance enriches administrator-facing user responses
+// with the spendable total without changing the legacy active quota field.
+func PopulateUsersPrepaidBalance(users []*User) error {
+	if len(users) == 0 {
+		return nil
+	}
+	ids := make([]int, 0, len(users))
+	usersById := make(map[int][]*User, len(users))
+	maxInt64 := int64(^uint64(0) >> 1)
+	for _, user := range users {
+		if user == nil || user.Id <= 0 || user.Quota < 0 {
+			return ErrPrepaidTargetInvalid
+		}
+		user.ReserveQuota = 0
+		user.TotalQuota = int64(user.Quota)
+		if _, found := usersById[user.Id]; !found {
+			ids = append(ids, user.Id)
+		}
+		usersById[user.Id] = append(usersById[user.Id], user)
+	}
+
+	type userBalanceSnapshot struct {
+		TargetId     int
+		ActiveQuota  int64
+		ReserveQuota int64
+	}
+	var snapshots []userBalanceSnapshot
+	if err := DB.Table("users").
+		Select(
+			"users.id AS target_id, users.quota AS active_quota, "+
+				"COALESCE(prepaid_reserves.quota, 0) AS reserve_quota",
+		).
+		Joins(
+			"LEFT JOIN prepaid_reserves ON prepaid_reserves.target_type = ? "+
+				"AND prepaid_reserves.target_id = users.id",
+			PrepaidTargetUser,
+		).
+		Where("users.id IN ?", ids).
+		Scan(&snapshots).Error; err != nil {
+		return err
+	}
+	for _, snapshot := range snapshots {
+		if snapshot.ActiveQuota < 0 ||
+			snapshot.ActiveQuota > int64(common.MaxQuota) ||
+			snapshot.ReserveQuota < 0 {
+			return ErrPrepaidBalanceOutOfRange
+		}
+		for _, user := range usersById[snapshot.TargetId] {
+			if snapshot.ActiveQuota > maxInt64-snapshot.ReserveQuota {
+				return ErrPrepaidBalanceOutOfRange
+			}
+			user.Quota = int(snapshot.ActiveQuota)
+			user.ReserveQuota = snapshot.ReserveQuota
+			user.TotalQuota = snapshot.ActiveQuota + snapshot.ReserveQuota
+		}
+	}
+	return nil
+}
+
+// PopulateUserPrepaidBalance is the single-user form used by the administrator
+// detail endpoint.
+func PopulateUserPrepaidBalance(user *User) error {
+	if user == nil {
+		return ErrPrepaidTargetInvalid
+	}
+	return PopulateUsersPrepaidBalance([]*User{user})
 }
 
 // PopulateTeamPrepaidBalance adds user-visible reserve and total fields to a
@@ -790,9 +1146,5 @@ func RefreshPrepaidTargetCache(targetType string, targetId int) error {
 	lock := userQuotaMutationLock(targetId)
 	lock.Lock()
 	defer lock.Unlock()
-	active, err := loadPrepaidActiveQuotaTx(DB, targetType, targetId, false)
-	if err != nil {
-		return err
-	}
-	return updateUserQuotaCache(targetId, int(active))
+	return refreshUserQuotaCacheFromDB(targetId)
 }

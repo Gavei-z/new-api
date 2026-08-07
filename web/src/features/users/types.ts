@@ -43,6 +43,8 @@ export const userSchema = z.object({
   telegram_id: z.string().optional(),
   email: z.string().optional(),
   quota: z.number(),
+  reserve_quota: z.number().optional(),
+  total_quota: z.number().optional(),
   used_quota: z.number(),
   request_count: z.number(),
   group: z.string(),
@@ -143,6 +145,16 @@ export interface ManageUserQuotaPayload {
   action: 'add_quota'
   mode: QuotaAdjustMode
   value: number
+  idempotency_key: string
+}
+
+export interface UserQuotaAdjustmentResult {
+  applied: boolean
+  quota: number
+  active_quota: number
+  reserve_quota: number
+  total_quota: number
+  cache_invalidation_failed: boolean
 }
 
 // ============================================================================

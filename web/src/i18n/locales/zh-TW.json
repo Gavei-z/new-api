@@ -3615,6 +3615,7 @@
     "Quota": "額度",
     "Quota ({{currency}})": "額度 ({{currency}})",
     "Quota adjusted successfully": "調整額度成功",
+    "Quota was adjusted, but cache synchronization is still pending": "額度已調整，但快取同步仍在等待中",
     "Quota clamped": "額度已限制",
     "Quota consumed before charging users": "向用戶收費前消耗的配額",
     "Quota Distribution": "消耗分佈",

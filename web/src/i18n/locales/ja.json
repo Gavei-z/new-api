@@ -3615,6 +3615,7 @@
     "Quota": "クォータ",
     "Quota ({{currency}})": "クォータ ({{currency}})",
     "Quota adjusted successfully": "クォータの調整に成功しました",
+    "Quota was adjusted, but cache synchronization is still pending": "クォータは調整されましたが、キャッシュの同期はまだ保留中です",
     "Quota clamped": "クォータ制限適用",
     "Quota consumed before charging users": "ユーザーに請求する前に消費されるクォータ",
     "Quota Distribution": "クォータの分配",

@@ -3615,6 +3615,7 @@
     "Quota": "Quota",
     "Quota ({{currency}})": "Quota ({{currency}})",
     "Quota adjusted successfully": "Quota ajusté avec succès",
+    "Quota was adjusted, but cache synchronization is still pending": "Le quota a été ajusté, mais la synchronisation du cache est toujours en attente",
     "Quota clamped": "Quota plafonné",
     "Quota consumed before charging users": "Quota consommé avant de facturer les utilisateurs",
     "Quota Distribution": "Distribution des quotas",

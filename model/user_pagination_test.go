@@ -64,3 +64,41 @@ func TestSearchUsersSortsBeforePagination(t *testing.T) {
 	assert.Equal(t, int64(42), total)
 	assert.Equal(t, []int{21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40}, collectUserIDs(users))
 }
+
+func TestUserQuotaSortingAndResponsesUseTotalPrepaidBalance(t *testing.T) {
+	truncateTables(t)
+	users := []*User{
+		{
+			Id: 1, Username: "active-heavy", Password: "password123",
+			Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
+			Group: "default", AffCode: "active-heavy", Quota: 100,
+		},
+		{
+			Id: 2, Username: "reserve-heavy", Password: "password123",
+			Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
+			Group: "default", AffCode: "reserve-heavy", Quota: 10,
+		},
+	}
+	for _, user := range users {
+		require.NoError(t, DB.Create(user).Error)
+	}
+	require.NoError(t, DB.Create(&PrepaidReserve{
+		TargetType: PrepaidTargetUser,
+		TargetId:   2,
+		Quota:      1_000,
+	}).Error)
+
+	sorted, total, err := GetAllUsers(
+		&common.PageInfo{Page: 1, PageSize: 20},
+		NewUserSortOptions("quota", "desc"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	assert.Equal(t, []int{2, 1}, collectUserIDs(sorted))
+
+	require.NoError(t, PopulateUsersPrepaidBalance(sorted))
+	assert.Equal(t, int64(1_010), sorted[0].TotalQuota)
+	assert.Equal(t, int64(1_000), sorted[0].ReserveQuota)
+	assert.Equal(t, int64(100), sorted[1].TotalQuota)
+	assert.Zero(t, sorted[1].ReserveQuota)
+}

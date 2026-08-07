@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -73,6 +74,429 @@ func TestPrepaidCreditStoresLargeBalanceWithoutOverflow(t *testing.T) {
 		)
 	})
 	require.ErrorIs(t, err, ErrPrepaidIdempotencyConflict)
+}
+
+func TestUserQuotaAdjustmentUsesTotalPrepaidBalance(t *testing.T) {
+	db := setupTeamTestDB(t)
+	user := User{
+		Username:    "admin-adjust-total-user",
+		Password:    "password",
+		Status:      common.UserStatusEnabled,
+		Quota:       int(prepaidActiveRefillTarget - 5),
+		AuthVersion: 1,
+	}
+	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, db.Create(&PrepaidReserve{
+		TargetType: PrepaidTargetUser,
+		TargetId:   user.Id,
+		Quota:      20,
+	}).Error)
+
+	added, err := ApplyUserQuotaAdjustment(UserQuotaAdjustment{
+		TargetUserId:   user.Id,
+		ActorUserId:    9001,
+		Mode:           UserQuotaAdjustmentAdd,
+		Value:          10,
+		IdempotencyKey: "admin-adjust:add-total",
+		Note:           "admin credit",
+	})
+	require.NoError(t, err)
+	assert.True(t, added.Applied)
+	assert.Equal(t, prepaidActiveRefillTarget, added.Balance.ActiveQuota)
+	assert.Equal(t, int64(25), added.Balance.ReserveQuota)
+	assert.Equal(t, prepaidActiveRefillTarget+25, added.Balance.TotalQuota)
+
+	subtracted, err := ApplyUserQuotaAdjustment(UserQuotaAdjustment{
+		TargetUserId:   user.Id,
+		ActorUserId:    9001,
+		Mode:           UserQuotaAdjustmentSubtract,
+		Value:          30,
+		IdempotencyKey: "admin-adjust:subtract-total",
+		Note:           "admin debit",
+	})
+	require.NoError(t, err)
+	assert.True(t, subtracted.Applied)
+	assert.Zero(t, subtracted.Balance.ReserveQuota)
+	assert.Equal(t, prepaidActiveRefillTarget-5, subtracted.Balance.ActiveQuota)
+	assert.Equal(t, prepaidActiveRefillTarget-5, subtracted.Balance.TotalQuota)
+
+	overridden, err := ApplyUserQuotaAdjustment(UserQuotaAdjustment{
+		TargetUserId:   user.Id,
+		ActorUserId:    9001,
+		Mode:           UserQuotaAdjustmentOverride,
+		Value:          prepaidActiveRefillTarget + 100,
+		IdempotencyKey: "admin-adjust:override-large",
+		Note:           "admin override",
+	})
+	require.NoError(t, err)
+	assert.True(t, overridden.Applied)
+	assert.Equal(t, prepaidActiveRefillTarget, overridden.Balance.ActiveQuota)
+	assert.Equal(t, int64(100), overridden.Balance.ReserveQuota)
+	assert.Equal(t, prepaidActiveRefillTarget+100, overridden.Balance.TotalQuota)
+
+	cleared, err := ApplyUserQuotaAdjustment(UserQuotaAdjustment{
+		TargetUserId:   user.Id,
+		ActorUserId:    9001,
+		Mode:           UserQuotaAdjustmentOverride,
+		Value:          0,
+		IdempotencyKey: "admin-adjust:override-zero",
+		Note:           "admin clear",
+	})
+	require.NoError(t, err)
+	assert.True(t, cleared.Applied)
+	assert.Equal(t, PrepaidBalance{}, cleared.Balance)
+
+	var stored User
+	require.NoError(t, db.First(&stored, user.Id).Error)
+	assert.Zero(t, stored.Quota)
+	var reserve PrepaidReserve
+	require.NoError(t, db.Where(
+		"target_type = ? AND target_id = ?",
+		PrepaidTargetUser,
+		user.Id,
+	).First(&reserve).Error)
+	assert.Zero(t, reserve.Quota)
+
+	var transactions []PrepaidReserveTransaction
+	require.NoError(t, db.Where(
+		"target_type = ? AND target_id = ?",
+		PrepaidTargetUser,
+		user.Id,
+	).Order("id asc").Find(&transactions).Error)
+	require.Len(t, transactions, 4)
+	assert.Equal(t, PrepaidTransactionAdminCredit, transactions[0].Type)
+	assert.Equal(t, int64(5), transactions[0].ActiveQuotaDelta)
+	assert.Equal(t, int64(5), transactions[0].ReserveQuotaDelta)
+	assert.Equal(t, PrepaidTransactionAdminDebit, transactions[1].Type)
+	assert.Equal(t, int64(-25), transactions[1].ReserveQuotaDelta)
+	assert.Equal(t, int64(-5), transactions[1].ActiveQuotaDelta)
+	assert.Equal(t, PrepaidTransactionAdminOverride, transactions[2].Type)
+	assert.Equal(t, PrepaidTransactionAdminOverride, transactions[3].Type)
+	assert.Equal(t, -(prepaidActiveRefillTarget + 100), transactions[3].QuotaDelta)
+}
+
+func TestUserQuotaAdjustmentIsAtomicAndIdempotent(t *testing.T) {
+	db := setupTeamTestDB(t)
+	user := User{
+		Username:    "admin-adjust-idempotent-user",
+		Password:    "password",
+		Status:      common.UserStatusEnabled,
+		Quota:       10,
+		AuthVersion: 1,
+	}
+	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, db.Create(&PrepaidReserve{
+		TargetType: PrepaidTargetUser,
+		TargetId:   user.Id,
+		Quota:      15,
+	}).Error)
+
+	adjustment := UserQuotaAdjustment{
+		TargetUserId:   user.Id,
+		ActorUserId:    9002,
+		Mode:           UserQuotaAdjustmentSubtract,
+		Value:          20,
+		IdempotencyKey: "admin-adjust:idempotent",
+		Note:           "first request",
+	}
+	first, err := ApplyUserQuotaAdjustment(adjustment)
+	require.NoError(t, err)
+	assert.True(t, first.Applied)
+	assert.Equal(t, int64(5), first.Balance.TotalQuota)
+
+	adjustment.Note = "network retry"
+	replayed, err := ApplyUserQuotaAdjustment(adjustment)
+	require.NoError(t, err)
+	assert.False(t, replayed.Applied)
+	assert.Equal(t, first.Balance, replayed.Balance)
+	assert.Equal(t, first.QuotaDelta, replayed.QuotaDelta)
+
+	conflict := adjustment
+	conflict.Value = 19
+	_, err = ApplyUserQuotaAdjustment(conflict)
+	require.ErrorIs(t, err, ErrPrepaidIdempotencyConflict)
+
+	beforeFailedDebit, err := GetPrepaidBalance(PrepaidTargetUser, user.Id)
+	require.NoError(t, err)
+	_, err = ApplyUserQuotaAdjustment(UserQuotaAdjustment{
+		TargetUserId:   user.Id,
+		ActorUserId:    9002,
+		Mode:           UserQuotaAdjustmentSubtract,
+		Value:          beforeFailedDebit.TotalQuota + 1,
+		IdempotencyKey: "admin-adjust:insufficient",
+	})
+	require.ErrorIs(t, err, ErrUserQuotaInsufficient)
+	afterFailedDebit, err := GetPrepaidBalance(PrepaidTargetUser, user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, beforeFailedDebit, afterFailedDebit)
+
+	var transactionCount int64
+	require.NoError(t, db.Model(&PrepaidReserveTransaction{}).
+		Where("target_type = ? AND target_id = ?", PrepaidTargetUser, user.Id).
+		Count(&transactionCount).Error)
+	assert.EqualValues(t, 1, transactionCount)
+}
+
+func TestConcurrentUserQuotaAdjustmentNeverOverdrawsTotalBalance(t *testing.T) {
+	db := setupTeamTestDB(t)
+	user := User{
+		Username:    "admin-adjust-concurrent-user",
+		Password:    "password",
+		Status:      common.UserStatusEnabled,
+		Quota:       20,
+		AuthVersion: 1,
+	}
+	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, db.Create(&PrepaidReserve{
+		TargetType: PrepaidTargetUser,
+		TargetId:   user.Id,
+		Quota:      80,
+	}).Error)
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var wait sync.WaitGroup
+	for index := 0; index < 2; index++ {
+		wait.Add(1)
+		go func(index int) {
+			defer wait.Done()
+			<-start
+			_, err := ApplyUserQuotaAdjustment(UserQuotaAdjustment{
+				TargetUserId:   user.Id,
+				ActorUserId:    9003,
+				Mode:           UserQuotaAdjustmentSubtract,
+				Value:          80,
+				IdempotencyKey: fmt.Sprintf("admin-adjust:concurrent:%d", index),
+			})
+			errs <- err
+		}(index)
+	}
+	close(start)
+	wait.Wait()
+	close(errs)
+
+	successes := 0
+	insufficient := 0
+	for err := range errs {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, ErrUserQuotaInsufficient):
+			insufficient++
+		default:
+			require.NoError(t, err)
+		}
+	}
+	assert.Equal(t, 1, successes)
+	assert.Equal(t, 1, insufficient)
+
+	balance, err := GetPrepaidBalance(PrepaidTargetUser, user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, int64(20), balance.TotalQuota)
+	var transactionCount int64
+	require.NoError(t, db.Model(&PrepaidReserveTransaction{}).
+		Where("target_type = ? AND target_id = ?", PrepaidTargetUser, user.Id).
+		Count(&transactionCount).Error)
+	assert.EqualValues(t, 1, transactionCount)
+}
+
+func TestUserQuotaAdjustmentInvalidatesCachedActiveQuota(t *testing.T) {
+	db := setupTeamTestDB(t)
+	server := useUserCacheMiniRedis(t)
+	user := User{
+		Username:    "admin-adjust-cache-user",
+		Password:    "password",
+		Status:      common.UserStatusEnabled,
+		Group:       "default",
+		Quota:       10,
+		AuthVersion: 1,
+	}
+	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, populateUserCache(user))
+	stale := *user.ToBaseUser()
+	assert.True(t, server.Exists(getUserCacheKey(user.Id)))
+
+	result, err := ApplyUserQuotaAdjustment(UserQuotaAdjustment{
+		TargetUserId:   user.Id,
+		ActorUserId:    9004,
+		Mode:           UserQuotaAdjustmentAdd,
+		Value:          5,
+		IdempotencyKey: "admin-adjust:cache",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(15), result.Balance.ActiveQuota)
+	assert.False(t, server.Exists(getUserCacheKey(user.Id)))
+
+	err = writeUserCache(&stale, true)
+	require.ErrorIs(t, err, ErrUserQuotaCachePending)
+	assert.False(t, server.Exists(getUserCacheKey(user.Id)))
+
+	cached, err := GetUserCache(user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, 15, cached.Quota)
+	assert.True(t, server.Exists(getUserCacheKey(user.Id)))
+	err = updateUserQuotaCacheAtVersion(user.Id, 10, stale.QuotaVersion)
+	require.ErrorIs(t, err, ErrUserQuotaCachePending)
+	cached, err = cacheGetUserBase(user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, 15, cached.Quota)
+}
+
+func TestUserQuotaAdjustmentReportsCommittedSuccessWhenPostCommitCacheDeleteFails(t *testing.T) {
+	db := setupTeamTestDB(t)
+	server := useUserCacheMiniRedis(t)
+	user := User{
+		Username:    "admin-adjust-cache-failure-user",
+		Password:    "password",
+		Status:      common.UserStatusEnabled,
+		Group:       "default",
+		Quota:       10,
+		AuthVersion: 1,
+	}
+	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, populateUserCache(user))
+
+	require.NoError(t, db.Callback().Create().After("gorm:create").
+		Register("test:close_redis_after_adjustment_ledger", func(tx *gorm.DB) {
+			if tx.Statement != nil &&
+				tx.Statement.Schema != nil &&
+				tx.Statement.Schema.Name == "PrepaidReserveTransaction" {
+				_ = common.RDB.Close()
+			}
+		}))
+
+	adjustment := UserQuotaAdjustment{
+		TargetUserId:   user.Id,
+		ActorUserId:    9007,
+		Mode:           UserQuotaAdjustmentAdd,
+		Value:          5,
+		IdempotencyKey: "admin-adjust:post-commit-cache-failure",
+	}
+	committed, err := ApplyUserQuotaAdjustment(adjustment)
+	require.NoError(t, err)
+	assert.True(t, committed.Applied)
+	assert.True(t, committed.CacheInvalidationFailed)
+	assert.Equal(t, int64(15), committed.Balance.TotalQuota)
+
+	// A replay under the same key remains a no-op and retries cache deletion.
+	common.RDB = redis.NewClient(&redis.Options{Addr: server.Addr()})
+	cached, err := GetUserCache(user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, 15, cached.Quota)
+	replayed, err := ApplyUserQuotaAdjustment(adjustment)
+	require.NoError(t, err)
+	assert.False(t, replayed.Applied)
+	assert.False(t, replayed.CacheInvalidationFailed)
+	assert.Equal(t, committed.Balance, replayed.Balance)
+
+	balance, err := GetPrepaidBalance(PrepaidTargetUser, user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, int64(15), balance.TotalQuota)
+	var transactionCount int64
+	require.NoError(t, db.Model(&PrepaidReserveTransaction{}).
+		Where("idempotency_key = ?", adjustment.IdempotencyKey).
+		Count(&transactionCount).Error)
+	assert.EqualValues(t, 1, transactionCount)
+}
+
+func TestUserQuotaAdjustmentRollsBackBucketsWhenLedgerWriteFails(t *testing.T) {
+	db := setupTeamTestDB(t)
+	user := User{
+		Username:    "admin-adjust-ledger-rollback-user",
+		Password:    "password",
+		Status:      common.UserStatusEnabled,
+		Quota:       10,
+		AuthVersion: 1,
+	}
+	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, db.Create(&PrepaidReserve{
+		TargetType: PrepaidTargetUser,
+		TargetId:   user.Id,
+		Quota:      20,
+	}).Error)
+
+	sentinel := errors.New("forced ledger failure")
+	require.NoError(t, db.Callback().Create().Before("gorm:create").
+		Register("test:fail_admin_adjustment_ledger", func(tx *gorm.DB) {
+			if tx.Statement != nil &&
+				tx.Statement.Schema != nil &&
+				tx.Statement.Schema.Name == "PrepaidReserveTransaction" {
+				_ = tx.AddError(sentinel)
+			}
+		}))
+
+	_, err := ApplyUserQuotaAdjustment(UserQuotaAdjustment{
+		TargetUserId:   user.Id,
+		ActorUserId:    9005,
+		Mode:           UserQuotaAdjustmentOverride,
+		Value:          100,
+		IdempotencyKey: "admin-adjust:ledger-failure",
+	})
+	require.ErrorIs(t, err, sentinel)
+
+	balance, err := GetPrepaidBalance(PrepaidTargetUser, user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, int64(10), balance.ActiveQuota)
+	assert.Equal(t, int64(20), balance.ReserveQuota)
+	assert.Equal(t, int64(30), balance.TotalQuota)
+	var transactionCount int64
+	require.NoError(t, db.Model(&PrepaidReserveTransaction{}).Count(&transactionCount).Error)
+	assert.Zero(t, transactionCount)
+}
+
+func TestUserQuotaAdjustmentRejectsInvalidAndOverflowingValues(t *testing.T) {
+	db := setupTeamTestDB(t)
+	user := User{
+		Username:    "admin-adjust-invalid-user",
+		Password:    "password",
+		Status:      common.UserStatusEnabled,
+		Quota:       10,
+		AuthVersion: 1,
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	cases := []UserQuotaAdjustment{
+		{
+			TargetUserId: user.Id, ActorUserId: 9006,
+			Mode: UserQuotaAdjustmentAdd, Value: 0,
+			IdempotencyKey: "admin-adjust:zero-add",
+		},
+		{
+			TargetUserId: user.Id, ActorUserId: 9006,
+			Mode: UserQuotaAdjustmentSubtract, Value: -1,
+			IdempotencyKey: "admin-adjust:negative-subtract",
+		},
+		{
+			TargetUserId: user.Id, ActorUserId: 9006,
+			Mode: UserQuotaAdjustmentOverride, Value: -1,
+			IdempotencyKey: "admin-adjust:negative-override",
+		},
+		{
+			TargetUserId: user.Id, ActorUserId: 9006,
+			Mode: "unknown", Value: 1,
+			IdempotencyKey: "admin-adjust:unknown",
+		},
+	}
+	for _, adjustment := range cases {
+		_, err := ApplyUserQuotaAdjustment(adjustment)
+		require.ErrorIs(t, err, ErrPrepaidQuotaInvalid)
+	}
+
+	_, err := ApplyUserQuotaAdjustment(UserQuotaAdjustment{
+		TargetUserId:   user.Id,
+		ActorUserId:    9006,
+		Mode:           UserQuotaAdjustmentAdd,
+		Value:          int64(^uint64(0) >> 1),
+		IdempotencyKey: "admin-adjust:overflow",
+	})
+	require.ErrorIs(t, err, ErrPrepaidBalanceOutOfRange)
+
+	balance, err := GetPrepaidBalance(PrepaidTargetUser, user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, int64(10), balance.TotalQuota)
+	var transactionCount int64
+	require.NoError(t, db.Model(&PrepaidReserveTransaction{}).Count(&transactionCount).Error)
+	assert.Zero(t, transactionCount)
 }
 
 func TestPrepaidReversalIsIdempotentAndReportsSpentShortfall(t *testing.T) {

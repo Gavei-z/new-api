@@ -751,6 +751,7 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 	var logPlanTitle string
 	var logMoney float64
 	var chargedQuota int
+	var quotaVersion int64
 	var upgradeGroup string
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		plan, err := getSubscriptionPlanByIdTx(tx, planId)
@@ -784,6 +785,7 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 				Update("quota", gorm.Expr("quota - ?", requiredQuota)).Error; err != nil {
 				return err
 			}
+			quotaVersion = user.QuotaVersion
 		}
 
 		subscription, err := CreateUserSubscriptionFromPlanTx(tx, userId, plan, PaymentMethodBalance)
@@ -822,7 +824,7 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 	}
 
 	if chargedQuota > 0 {
-		if err := cacheDecrUserQuota(userId, int64(chargedQuota)); err != nil {
+		if err := cacheDecrUserQuota(userId, int64(chargedQuota), quotaVersion); err != nil {
 			common.SysLog("failed to decrease user quota cache after subscription balance purchase: " + err.Error())
 		}
 	}

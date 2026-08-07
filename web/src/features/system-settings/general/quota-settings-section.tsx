@@ -51,10 +51,10 @@ import { useSettingsForm } from '../hooks/use-settings-form'
 import { useUpdateOption } from '../hooks/use-update-option'
 
 const quotaSchema = z.object({
-  QuotaForNewUser: z.coerce.number().min(0),
+  QuotaForNewUser: z.coerce.number().int().min(0).max(2147483647),
   PreConsumedQuota: z.coerce.number().min(0),
-  QuotaForInviter: z.coerce.number().min(0),
-  QuotaForInvitee: z.coerce.number().min(0),
+  QuotaForInviter: z.coerce.number().int().min(0).max(2147483647),
+  QuotaForInvitee: z.coerce.number().int().min(0).max(2147483647),
   TopUpLink: z.string(),
   general_setting: z.object({
     docs_link: z.string(),
@@ -138,6 +138,7 @@ export function QuotaSettingsSection({
                   <FormControl>
                     <Input
                       type='number'
+                      step={1}
                       value={field.value ?? ''}
                       onChange={handleNumberChange(field.onChange)}
                       name={field.name}
@@ -191,6 +192,7 @@ export function QuotaSettingsSection({
                   <FormControl>
                     <Input
                       type='number'
+                      step={1}
                       value={field.value ?? ''}
                       onChange={handleNumberChange(field.onChange)}
                       name={field.name}
@@ -220,6 +222,7 @@ export function QuotaSettingsSection({
                   <FormControl>
                     <Input
                       type='number'
+                      step={1}
                       value={field.value ?? ''}
                       onChange={handleNumberChange(field.onChange)}
                       name={field.name}

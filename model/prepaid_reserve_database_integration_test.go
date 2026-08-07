@@ -114,6 +114,7 @@ func TestPrepaidReserveRealDatabases(t *testing.T) {
 				t.Fatalf("column %s was not found", columnName)
 			}
 			assertBigintColumn(&User{}, "used_quota")
+			assertBigintColumn(&User{}, "quota_version")
 			assertBigintColumn(&Team{}, "used_quota")
 			assertBigintColumn(&TeamQuotaTransaction{}, "used_quota_delta")
 			assertBigintColumn(&TeamQuotaTransaction{}, "used_quota_after")
@@ -425,6 +426,85 @@ func TestPrepaidReserveRealDatabases(t *testing.T) {
 			).First(&orderingInbox).Error)
 			assert.Equal(t, stripeAdjustmentInboxApplied, orderingInbox.State)
 			assert.Equal(t, orderingTopUp.TradeNo, orderingInbox.TradeNo)
+
+			adminUser := User{
+				Username:    "admin-adjust-" + runID,
+				Password:    "integration-test-password",
+				Status:      common.UserStatusEnabled,
+				Quota:       20,
+				AuthVersion: 1,
+				AffCode:     "m-" + shortID,
+			}
+			require.NoError(t, db.Create(&adminUser).Error)
+			require.NoError(t, db.Create(&PrepaidReserve{
+				TargetType: PrepaidTargetUser,
+				TargetId:   adminUser.Id,
+				Quota:      80,
+			}).Error)
+
+			adminAddKey := "prepaid-it:" + runID + ":admin-add"
+			adminAdded, err := ApplyUserQuotaAdjustment(UserQuotaAdjustment{
+				TargetUserId:   adminUser.Id,
+				ActorUserId:    user.Id,
+				Mode:           UserQuotaAdjustmentAdd,
+				Value:          3_000_000_000,
+				IdempotencyKey: adminAddKey,
+				Note:           "real database admin add",
+			})
+			require.NoError(t, err)
+			assert.True(t, adminAdded.Applied)
+			assert.Equal(t, int64(3_000_000_100), adminAdded.Balance.TotalQuota)
+			assert.Equal(t, prepaidActiveRefillTarget, adminAdded.Balance.ActiveQuota)
+			assert.Greater(t, adminAdded.Balance.ReserveQuota, int64(0))
+
+			adminReplay, err := ApplyUserQuotaAdjustment(UserQuotaAdjustment{
+				TargetUserId:   adminUser.Id,
+				ActorUserId:    user.Id,
+				Mode:           UserQuotaAdjustmentAdd,
+				Value:          3_000_000_000,
+				IdempotencyKey: adminAddKey,
+				Note:           "real database retry",
+			})
+			require.NoError(t, err)
+			assert.False(t, adminReplay.Applied)
+			assert.Equal(t, adminAdded.Balance, adminReplay.Balance)
+
+			adminCleared, err := ApplyUserQuotaAdjustment(UserQuotaAdjustment{
+				TargetUserId:   adminUser.Id,
+				ActorUserId:    user.Id,
+				Mode:           UserQuotaAdjustmentOverride,
+				Value:          0,
+				IdempotencyKey: "prepaid-it:" + runID + ":admin-clear",
+				Note:           "real database admin clear",
+			})
+			require.NoError(t, err)
+			assert.Equal(t, PrepaidBalance{}, adminCleared.Balance)
+
+			sortLowUser := User{
+				Username: "sort-low-" + runID, Password: "integration-test-password",
+				Status: common.UserStatusEnabled, Quota: 100, AuthVersion: 1,
+				AffCode: "s1-" + shortID,
+			}
+			sortReserveUser := User{
+				Username: "sort-reserve-" + runID, Password: "integration-test-password",
+				Status: common.UserStatusEnabled, Quota: 10, AuthVersion: 1,
+				AffCode: "s2-" + shortID,
+			}
+			require.NoError(t, db.Create(&sortLowUser).Error)
+			require.NoError(t, db.Create(&sortReserveUser).Error)
+			require.NoError(t, db.Create(&PrepaidReserve{
+				TargetType: PrepaidTargetUser,
+				TargetId:   sortReserveUser.Id,
+				Quota:      1_000,
+			}).Error)
+			var sortedUsers []*User
+			require.NoError(t, NewUserSortOptions("quota", "desc").
+				Apply(db.Where("id IN ?", []int{sortLowUser.Id, sortReserveUser.Id})).
+				Find(&sortedUsers).Error)
+			require.Len(t, sortedUsers, 2)
+			assert.Equal(t, sortReserveUser.Id, sortedUsers[0].Id)
+			require.NoError(t, PopulateUsersPrepaidBalance(sortedUsers))
+			assert.Equal(t, int64(1_010), sortedUsers[0].TotalQuota)
 
 			rollbackUser := User{
 				Username:    "rollback-" + runID,

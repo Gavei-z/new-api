@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,21 @@ import (
 type Option struct {
 	Key   string `json:"key" gorm:"primaryKey"`
 	Value string `json:"value"`
+}
+
+// NormalizeQuotaGrantOptionValue validates quota grants that are written
+// directly into the integer personal-wallet bucket.
+func NormalizeQuotaGrantOptionValue(key string, value string) (string, error) {
+	switch key {
+	case "QuotaForNewUser", "QuotaForInviter", "QuotaForInvitee":
+	default:
+		return value, nil
+	}
+	parsed, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	if err != nil || parsed < 0 || parsed > int64(common.MaxQuota) {
+		return "", fmt.Errorf("%s must be a non-negative integer quota", key)
+	}
+	return strconv.FormatInt(parsed, 10), nil
 }
 
 func AllOption() ([]*Option, error) {
@@ -205,17 +221,26 @@ func SyncOptions(frequency int) {
 }
 
 func UpdateOption(key string, value string) error {
+	normalizedValue, err := NormalizeQuotaGrantOptionValue(key, value)
+	if err != nil {
+		return err
+	}
+	value = normalizedValue
 	// Save to database first
 	option := Option{
 		Key: key,
 	}
 	// https://gorm.io/docs/update.html#Save-All-Fields
-	DB.FirstOrCreate(&option, Option{Key: key})
+	if err := DB.FirstOrCreate(&option, Option{Key: key}).Error; err != nil {
+		return err
+	}
 	option.Value = value
 	// Save is a combination function.
 	// If save value does not contain primary key, it will execute Create,
 	// otherwise it will execute Update (with all fields).
-	DB.Save(&option)
+	if err := DB.Save(&option).Error; err != nil {
+		return err
+	}
 	// Update OptionMap
 	return updateOptionMap(key, value)
 }
@@ -229,8 +254,16 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
 	}
+	normalizedValues := make(map[string]string, len(values))
+	for key, value := range values {
+		normalizedValue, err := NormalizeQuotaGrantOptionValue(key, value)
+		if err != nil {
+			return err
+		}
+		normalizedValues[key] = normalizedValue
+	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		for k, v := range values {
+		for k, v := range normalizedValues {
 			option := Option{Key: k}
 			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
 				return err
@@ -245,7 +278,7 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if err != nil {
 		return err
 	}
-	for k, v := range values {
+	for k, v := range normalizedValues {
 		if err := updateOptionMap(k, v); err != nil {
 			return err
 		}
@@ -254,6 +287,10 @@ func UpdateOptionsBulk(values map[string]string) error {
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	value, err = NormalizeQuotaGrantOptionValue(key, value)
+	if err != nil {
+		return err
+	}
 	if key == retiredThemeOptionKey {
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, key)

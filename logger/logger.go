@@ -120,6 +120,10 @@ func logHelper(ctx context.Context, level string, msg string) {
 }
 
 func LogQuota(quota int) string {
+	return LogQuota64(int64(quota))
+}
+
+func LogQuota64(quota int64) string {
 	// 新逻辑：根据额度展示类型输出
 	q := float64(quota)
 	switch operation_setting.GetQuotaDisplayType() {

@@ -79,18 +79,116 @@ func TestPendingUserAuthFenceRejectsStaleCacheWrite(t *testing.T) {
 	require.NoError(t, SetUserAuthVersionFence(userID, 2))
 
 	err := writeUserCache(&UserBase{
-		Id: userID, Group: "default", Username: "stale", AuthVersion: 1,
+		Id: userID, Group: "default", Username: "stale",
+		AuthVersion: 1, QuotaVersion: 1,
 	}, true)
 
 	assert.ErrorIs(t, err, ErrUserAuthCachePending)
 	assert.False(t, server.Exists(getUserCacheKey(userID)))
 }
 
+func TestFullUserCacheWriteReplacesQuotaWhenQuotaVersionAdvances(t *testing.T) {
+	server := useUserCacheMiniRedis(t)
+	const userID = 4203
+	require.NoError(t, writeUserCache(&UserBase{
+		Id: userID, Group: "default", Username: "cached", Quota: 100,
+		AuthVersion: 1, QuotaVersion: 1,
+	}, true))
+	require.NoError(t, setUserQuotaVersionFence(userID, 2))
+
+	require.NoError(t, writeUserCache(&UserBase{
+		Id: userID, Group: "default", Username: "current", Quota: 20,
+		AuthVersion: 1, QuotaVersion: 2,
+	}, true))
+
+	cached, err := cacheGetUserBase(userID)
+	require.NoError(t, err)
+	assert.Equal(t, 20, cached.Quota)
+	assert.EqualValues(t, 2, cached.QuotaVersion)
+	assert.False(t, server.Exists(getUserQuotaFenceKey(userID)))
+}
+
+func TestLegacyUserCacheCannotCarryOldQuotaIntoNewSchema(t *testing.T) {
+	truncateTables(t)
+	useUserCacheMiniRedis(t)
+	user := User{
+		Username: "legacy-quota-cache", Password: "password",
+		Status: common.UserStatusEnabled, Group: "default", Quota: 20,
+		AuthVersion: 1, QuotaVersion: 1,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+	require.NoError(t, common.RDB.HSet(t.Context(), getUserCacheKey(user.Id), map[string]interface{}{
+		"Id":          user.Id,
+		"Group":       user.Group,
+		"Username":    user.Username,
+		"Quota":       999,
+		"Status":      user.Status,
+		"Role":        user.Role,
+		"AuthVersion": user.AuthVersion,
+		"CacheSchema": 2,
+	}).Err())
+
+	cached, err := GetUserCache(user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, 20, cached.Quota)
+	assert.EqualValues(t, 1, cached.QuotaVersion)
+	assert.Equal(t, userCacheSchemaVersion, cached.CacheSchema)
+}
+
+func TestNonQuotaCacheWriteCannotAdvanceQuotaVersionWithoutBalance(t *testing.T) {
+	server := useUserCacheMiniRedis(t)
+	const userID = 4204
+	require.NoError(t, writeUserCache(&UserBase{
+		Id: userID, Group: "default", Username: "cached", Quota: 100,
+		AuthVersion: 1, QuotaVersion: 1,
+	}, true))
+	require.NoError(t, setUserQuotaVersionFence(userID, 2))
+
+	require.NoError(t, writeUserCache(&UserBase{
+		Id: userID, Group: "updated", Username: "current", Quota: 20,
+		AuthVersion: 1, QuotaVersion: 2,
+	}, false))
+
+	assert.False(t, server.Exists(getUserCacheKey(userID)))
+	assert.True(t, server.Exists(getUserQuotaFenceKey(userID)))
+}
+
+func TestQuotaCacheDeltaRequiresCompleteMatchingVersion(t *testing.T) {
+	server := useUserCacheMiniRedis(t)
+	const userID = 4205
+	require.NoError(t, writeUserCache(&UserBase{
+		Id: userID, Group: "default", Username: "cached", Quota: 100,
+		AuthVersion: 1, QuotaVersion: 1,
+	}, true))
+	require.NoError(t, setUserQuotaVersionFence(userID, 2))
+
+	require.NoError(t, cacheIncrUserQuota(userID, 5, 1))
+	quota, err := common.RDB.HGet(t.Context(), getUserCacheKey(userID), "Quota").Int()
+	require.NoError(t, err)
+	assert.Equal(t, 100, quota)
+
+	require.NoError(t, publishCommittedUserQuotaVersion(userID, 2))
+	assert.False(t, server.Exists(getUserCacheKey(userID)))
+	require.NoError(t, cacheIncrUserQuota(userID, 5, 1))
+	assert.False(t, server.Exists(getUserCacheKey(userID)))
+
+	require.NoError(t, writeUserCache(&UserBase{
+		Id: userID, Group: "default", Username: "current", Quota: 20,
+		AuthVersion: 1, QuotaVersion: 2,
+	}, true))
+	require.NoError(t, cacheIncrUserQuota(userID, 5, 1))
+	require.NoError(t, cacheIncrUserQuota(userID, 3, 2))
+	cached, err := cacheGetUserBase(userID)
+	require.NoError(t, err)
+	assert.Equal(t, 23, cached.Quota)
+}
+
 func TestUserAuthFieldUpdateRejectsVersionMismatch(t *testing.T) {
 	useUserCacheMiniRedis(t)
 	const userID = 4202
 	require.NoError(t, writeUserCache(&UserBase{
-		Id: userID, Group: "current", Username: "cached", AuthVersion: 3,
+		Id: userID, Group: "current", Username: "cached",
+		AuthVersion: 3, QuotaVersion: 1,
 	}, true))
 
 	err := updateUserCacheFieldAtVersion(userID, "Group", "stale", 2)
@@ -220,4 +318,57 @@ func TestUserAuthVersionFenceAndCommittedFloorAreMonotonic(t *testing.T) {
 	committed, err = common.RDB.Get(t.Context(), getUserAuthVersionKey(userID)).Result()
 	require.NoError(t, err)
 	assert.Equal(t, "5", committed)
+}
+
+func TestGetUserQuotaFailsClosedOnPendingFenceBeforeCommit(t *testing.T) {
+	truncateTables(t)
+	useUserCacheMiniRedis(t)
+
+	user := User{
+		Username: "quota-fence-before-commit", Password: "password",
+		Status: common.UserStatusEnabled, Group: "default", Quota: 100,
+		AuthVersion: 1, QuotaVersion: 1,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+	require.NoError(t, populateUserCache(user))
+	require.NoError(t, setUserQuotaVersionFence(user.Id, 2))
+
+	quota, err := GetUserQuota(user.Id, false)
+	assert.Zero(t, quota)
+	assert.ErrorIs(t, err, ErrUserQuotaCachePending)
+}
+
+func TestGetUserQuotaRechecksFenceAfterDatabaseFallback(t *testing.T) {
+	truncateTables(t)
+	useUserCacheMiniRedis(t)
+
+	user := User{
+		Username: "quota-fence-after-read", Password: "password",
+		Status: common.UserStatusEnabled, Group: "default", Quota: 100,
+		AuthVersion: 1, QuotaVersion: 1,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	const callbackName = "test:set_quota_fence_after_database_read"
+	var callbackRan atomic.Bool
+	var callbackErr error
+	require.NoError(t, DB.Callback().Query().After("gorm:query").
+		Register(callbackName, func(tx *gorm.DB) {
+			if tx.Statement == nil ||
+				tx.Statement.Schema == nil ||
+				tx.Statement.Schema.Name != "User" ||
+				!callbackRan.CompareAndSwap(false, true) {
+				return
+			}
+			callbackErr = setUserQuotaVersionFence(user.Id, 2)
+		}))
+	t.Cleanup(func() {
+		_ = DB.Callback().Query().Remove(callbackName)
+	})
+
+	quota, err := GetUserQuota(user.Id, true)
+	require.NoError(t, callbackErr)
+	assert.True(t, callbackRan.Load())
+	assert.Zero(t, quota)
+	assert.ErrorIs(t, err, ErrUserQuotaCachePending)
 }
