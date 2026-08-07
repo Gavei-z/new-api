@@ -674,6 +674,10 @@ func createStripeCheckoutSession(
 		Metadata: map[string]string{"topup_reference": referenceID},
 	}
 	params.SetIdempotencyKey("stripe-topup:" + referenceID)
+	// UniRouters sells a fixed amount of prepaid USD credit. Managed Payments
+	// can add location-dependent tax and alter the charged/refunded amount, so
+	// keep this Checkout on Stripe's standard payment contract.
+	params.AddExtra("managed_payments[enabled]", "false")
 
 	if customerID == "" {
 		if email != "" {
