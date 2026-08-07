@@ -93,6 +93,14 @@ export function isWaffoPancakePayment(paymentType: string): boolean {
   return paymentType === PAYMENT_TYPES.WAFFO_PANCAKE
 }
 
+/**
+ * Top-up APIs persist quota amounts as integers. Keep this contract at every
+ * frontend entry point instead of silently rounding what the user entered.
+ */
+export function isIntegerTopupAmount(amount: number): boolean {
+  return Number.isSafeInteger(amount)
+}
+
 export interface PaymentProcessors {
   regular: (topupAmount: number, paymentType: string) => Promise<boolean>
   waffo: (topupAmount: number, payMethodIndex: number) => Promise<boolean>
@@ -105,6 +113,10 @@ export async function dispatchSelectedPayment(
   waffoMethodIndex: number | null,
   processors: PaymentProcessors
 ): Promise<boolean> {
+  if (!isIntegerTopupAmount(topupAmount)) {
+    return false
+  }
+
   if (isWaffoPayment(paymentMethod.type)) {
     if (waffoMethodIndex === null) {
       return false

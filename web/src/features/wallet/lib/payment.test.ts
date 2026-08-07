@@ -83,4 +83,30 @@ describe('payment dispatch', () => {
     assert.equal(success, false)
     assert.equal(called, false)
   })
+
+  test('does not dispatch a fractional top-up amount', async () => {
+    const calls: string[] = []
+    const success = await dispatchSelectedPayment(
+      { name: 'Bank transfer', type: 'custom' },
+      10.5,
+      null,
+      {
+        regular: async () => {
+          calls.push('regular')
+          return true
+        },
+        waffo: async () => {
+          calls.push('waffo')
+          return true
+        },
+        waffoPancake: async () => {
+          calls.push('pancake')
+          return true
+        },
+      }
+    )
+
+    assert.equal(success, false)
+    assert.deepEqual(calls, [])
+  })
 })

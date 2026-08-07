@@ -50,6 +50,7 @@ import {
   getDefaultPaymentType,
   getMinTopupAmount,
   getStripeTopupBounds,
+  isIntegerTopupAmount,
   isStripePayment,
   dispatchSelectedPayment,
   canTopUpPersonalWallet,
@@ -196,6 +197,10 @@ export function Wallet(props: WalletProps) {
   const handleTopupAmountChange = (amount: number) => {
     setTopupAmount(amount)
     setSelectedPreset(null)
+    if (!isIntegerTopupAmount(amount) || amount <= 0) {
+      setPaymentAmount(0)
+      return
+    }
     const paymentType = getCurrentPaymentType()
     const stripeValidation = validateStripeTopupAmount(
       amount,
@@ -210,6 +215,11 @@ export function Wallet(props: WalletProps) {
 
   // Handle payment method selection
   const handlePaymentMethodSelect = async (method: PaymentMethod) => {
+    if (!isIntegerTopupAmount(topupAmount)) {
+      toast.error(t('Amount must be a whole number'))
+      return
+    }
+
     setSelectedPaymentMethod(method)
     setSelectedWaffoMethodIndex(null)
     setPaymentLoading(method.type)
@@ -244,6 +254,10 @@ export function Wallet(props: WalletProps) {
   // Handle payment confirmation
   const handlePaymentConfirm = async () => {
     if (!selectedPaymentMethod) return
+    if (!isIntegerTopupAmount(topupAmount)) {
+      toast.error(t('Amount must be a whole number'))
+      return
+    }
     if (
       isStripePayment(selectedPaymentMethod.type) &&
       validateStripeTopupAmount(
@@ -314,6 +328,11 @@ export function Wallet(props: WalletProps) {
     method: WaffoPayMethod,
     index: number
   ) => {
+    if (!isIntegerTopupAmount(topupAmount)) {
+      toast.error(t('Amount must be a whole number'))
+      return
+    }
+
     const loadingKey = `waffo-${index}`
     setSelectedPaymentMethod({
       name: method.name,
