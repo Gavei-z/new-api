@@ -39,6 +39,7 @@ func TestUserUpdateDoesNotOverwriteAccountingFields(t *testing.T) {
 		Quota:        1000,
 		UsedQuota:    20,
 		RequestCount: 3,
+		QuotaVersion: 1,
 	}
 	require.NoError(t, DB.Create(&user).Error)
 
@@ -49,6 +50,7 @@ func TestUserUpdateDoesNotOverwriteAccountingFields(t *testing.T) {
 		"quota":         gorm.Expr("quota - ?", 400),
 		"used_quota":    gorm.Expr("used_quota + ?", 400),
 		"request_count": gorm.Expr("request_count + ?", 1),
+		"quota_version": gorm.Expr("quota_version + ?", 1),
 	}).Error)
 
 	staleUser.DisplayName = "after"
@@ -60,6 +62,44 @@ func TestUserUpdateDoesNotOverwriteAccountingFields(t *testing.T) {
 	assert.Equal(t, 600, got.Quota)
 	assert.EqualValues(t, 420, got.UsedQuota)
 	assert.Equal(t, 4, got.RequestCount)
+	assert.EqualValues(t, 2, got.QuotaVersion)
+}
+
+func TestInviteUserOnlyUpdatesAffiliateBalance(t *testing.T) {
+	setupUserUpdateTestState(t)
+
+	oldQuotaForInviter := common.QuotaForInviter
+	common.QuotaForInviter = 500_000
+	t.Cleanup(func() {
+		common.QuotaForInviter = oldQuotaForInviter
+	})
+
+	user := User{
+		Id:              2,
+		Username:        "affiliate-accounting-user",
+		Password:        "password",
+		Status:          common.UserStatusEnabled,
+		Quota:           750_000,
+		UsedQuota:       250_000,
+		RequestCount:    7,
+		QuotaVersion:    3,
+		AffCount:        4,
+		AffQuota:        1_000_000,
+		AffHistoryQuota: 1_500_000,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	require.NoError(t, inviteUser(user.Id))
+
+	var got User
+	require.NoError(t, DB.First(&got, user.Id).Error)
+	assert.Equal(t, 5, got.AffCount)
+	assert.Equal(t, 1_500_000, got.AffQuota)
+	assert.Equal(t, 2_000_000, got.AffHistoryQuota)
+	assert.Equal(t, 750_000, got.Quota)
+	assert.EqualValues(t, 250_000, got.UsedQuota)
+	assert.Equal(t, 7, got.RequestCount)
+	assert.EqualValues(t, 3, got.QuotaVersion)
 }
 
 func TestUpdateUserSettingOnlyUpdatesSetting(t *testing.T) {
