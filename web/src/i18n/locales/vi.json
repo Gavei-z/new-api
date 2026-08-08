@@ -2272,6 +2272,7 @@
     "https://wechat-server.example.com": "https://wechat-server.example.com",
     "https://worker.example.workers.dev": "https://worker.example.workers.dev",
     "https://your-server.example.com": "https://your-server.example.com",
+    "Human verification failed to load. Please retry.": "Không thể tải xác minh người dùng. Vui lòng thử lại.",
     "Human-readable name shown to users during Passkey prompts.": "Tên dễ đọc hiển thị cho người dùng trong quá trình nhắc nhở Passkey.",
     "I confirm enabling high-risk retry": "Tôi xác nhận bật thử lại rủi ro cao",
     "I have read and agree to the": "Tôi đã đọc và đồng ý với",

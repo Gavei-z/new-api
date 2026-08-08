@@ -2272,6 +2272,7 @@
     "https://wechat-server.example.com": "https://wechat-server.example.com",
     "https://worker.example.workers.dev": "https://worker.example.workers.dev",
     "https://your-server.example.com": "https://your-server.example.com",
+    "Human verification failed to load. Please retry.": "人間確認の読み込みに失敗しました。もう一度お試しください。",
     "Human-readable name shown to users during Passkey prompts.": "パスキーのプロンプト中にユーザーに表示される、人間が読める名前。",
     "I confirm enabling high-risk retry": "高リスクリトライの有効化を確認します",
     "I have read and agree to the": "私は以下を読み、同意します",

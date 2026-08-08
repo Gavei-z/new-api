@@ -65,7 +65,6 @@ export function SignUpForm({
   const [wechatCode, setWeChatCode] = useState('')
   const [isWeChatDialogOpen, setIsWeChatDialogOpen] = useState(false)
   const [isWeChatSubmitting, setIsWeChatSubmitting] = useState(false)
-  const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
   const legalConsentErrorMessage = t('Please agree to the legal terms first')
 
   const { status } = useStatus()
@@ -73,7 +72,9 @@ export function SignUpForm({
     isTurnstileEnabled,
     turnstileSiteKey,
     turnstileToken,
+    turnstileWidgetKey,
     setTurnstileToken,
+    resetTurnstile,
     validateTurnstile,
   } = useTurnstile()
   const { redirectToLogin, handleLoginSuccess } = useAuthRedirect()
@@ -159,6 +160,7 @@ export function SignUpForm({
     if (!validateTurnstile()) return
 
     setIsLoading(true)
+    let registrationCompleted = false
     try {
       const res = await register({
         username: data.username,
@@ -171,6 +173,7 @@ export function SignUpForm({
 
       if (res?.success) {
         toast.success(t('Account created! Please sign in'))
+        registrationCompleted = true
         redirectToLogin()
       } else {
         toast.error(res?.message || t('Failed to create account'))
@@ -178,14 +181,22 @@ export function SignUpForm({
     } catch {
       // Errors are handled by global interceptor
     } finally {
+      if (isTurnstileEnabled && !registrationCompleted) {
+        resetTurnstile()
+      }
       setIsLoading(false)
     }
   }
 
   async function handleSendVerificationCode() {
-    if (await sendCode(emailValue || '')) {
-      setTurnstileToken('')
-      setTurnstileWidgetKey((current) => current + 1)
+    const tokenWillBeSubmitted =
+      isTurnstileEnabled && Boolean(turnstileToken) && Boolean(emailValue)
+    try {
+      await sendCode(emailValue || '')
+    } finally {
+      if (tokenWillBeSubmitted) {
+        resetTurnstile()
+      }
     }
   }
 
@@ -353,6 +364,8 @@ export function SignUpForm({
               key={turnstileWidgetKey}
               siteKey={turnstileSiteKey}
               onVerify={setTurnstileToken}
+              onExpire={resetTurnstile}
+              onError={() => setTurnstileToken('')}
             />
           </div>
         )}
