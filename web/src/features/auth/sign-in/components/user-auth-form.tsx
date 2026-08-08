@@ -87,7 +87,9 @@ export function UserAuthForm({
     isTurnstileEnabled,
     turnstileSiteKey,
     turnstileToken,
+    turnstileWidgetKey,
     setTurnstileToken,
+    resetTurnstile,
     validateTurnstile,
   } = useTurnstile()
   const { handleLoginSuccess, redirectTo2FA } = useAuthRedirect()
@@ -113,6 +115,7 @@ export function UserAuthForm({
   )
   const hasAlternativeLogin =
     passkeyLoginEnabled || hasWeChatLogin || hasOAuthLogin
+  const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
 
   useEffect(() => {
     if (requiresLegalConsent) {
@@ -159,6 +162,7 @@ export function UserAuthForm({
     if (!validateTurnstile()) return
 
     setIsLoading(true)
+    let loginCompleted = false
     try {
       const res = await login({
         username: data.username,
@@ -172,6 +176,7 @@ export function UserAuthForm({
             throw new Error(t('Login flow expired. Please sign in again.'))
           }
           setPending2FAFlowToken(res.data.flow_token)
+          loginCompleted = true
           redirectTo2FA()
           return
         }
@@ -180,12 +185,16 @@ export function UserAuthForm({
           throw new Error(t('Login failed'))
         }
         await handleLoginSuccess(res.data, redirectTo)
+        loginCompleted = true
         toast.success(t('Welcome back!'))
       }
     } catch (error: unknown) {
       if (axios.isAxiosError(error)) return
       toast.error(error instanceof Error ? error.message : loginFailedMessage)
     } finally {
+      if (isTurnstileEnabled && !loginCompleted) {
+        resetTurnstile()
+      }
       setIsLoading(false)
     }
   }
@@ -398,7 +407,11 @@ export function UserAuthForm({
             <Button
               type='submit'
               className='mt-2 w-full justify-center gap-2'
-              disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
+              disabled={
+                isLoading ||
+                (requiresLegalConsent && !agreedToLegal) ||
+                !turnstileReady
+              }
             >
               {isLoading ? <Loader2 className='animate-spin' /> : <LogIn />}
               {t('Sign in')}
@@ -408,8 +421,11 @@ export function UserAuthForm({
             {isTurnstileEnabled && (
               <div className='mt-2'>
                 <Turnstile
+                  key={turnstileWidgetKey}
                   siteKey={turnstileSiteKey}
                   onVerify={setTurnstileToken}
+                  onExpire={resetTurnstile}
+                  onError={() => setTurnstileToken('')}
                 />
               </div>
             )}
