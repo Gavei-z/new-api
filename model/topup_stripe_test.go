@@ -1,6 +1,8 @@
 package model
 
 import (
+	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +22,42 @@ func setupStripeTopUpTestDB(t *testing.T) *gorm.DB {
 		&StripeAdjustmentInbox{},
 	))
 	return db
+}
+
+func TestStripeTopUpCheckoutSnapshotColumnsAutoMigrateSQLite(t *testing.T) {
+	db := setupStripeTopUpTestDB(t)
+	for _, column := range []string{
+		"stripe_checkout_method",
+		"stripe_price_id",
+		"expected_unit_amount_minor",
+	} {
+		assert.True(t, db.Migrator().HasColumn(&TopUp{}, column), column)
+	}
+}
+
+func TestStripeLegacyUSDOrderWithoutCheckoutSnapshotsStillCompletes(t *testing.T) {
+	db := setupStripeTopUpTestDB(t)
+	user := createStripeTopUpTestUser(t, db, "stripe-legacy-usd")
+	expectedQuota, err := stripeExpectedQuotaForAmount(2)
+	require.NoError(t, err)
+	legacy := TopUp{
+		UserId:              user.Id,
+		Amount:              2,
+		Money:               2,
+		TradeNo:             "stripe-legacy-usd-order",
+		PaymentMethod:       PaymentMethodStripe,
+		PaymentProvider:     PaymentProviderStripe,
+		Status:              common.TopUpStatusPending,
+		FundingTarget:       StripeFundingTargetUser,
+		FundingTargetId:     user.Id,
+		ExpectedAmountMinor: 200,
+		ExpectedCurrency:    "usd",
+		ExpectedQuota:       expectedQuota,
+	}
+	require.NoError(t, db.Create(&legacy).Error)
+
+	result := completeStripeTopUpTestOrder(t, &legacy, "legacy_usd")
+	assert.Equal(t, expectedQuota, result.CreditedQuota)
 }
 
 func createStripeTopUpTestUser(t *testing.T, db *gorm.DB, username string) *User {
@@ -49,20 +87,23 @@ func insertStripeTopUpTestOrder(
 	expectedQuota, err := stripeExpectedQuotaForAmount(amount)
 	require.NoError(t, err)
 	topUp := &TopUp{
-		UserId:              userId,
-		Amount:              amount,
-		Money:               float64(amount),
-		TradeNo:             "stripe-test-" + suffix,
-		PaymentMethod:       PaymentMethodStripe,
-		PaymentProvider:     PaymentProviderStripe,
-		CreateTime:          common.GetTimestamp(),
-		Status:              common.TopUpStatusPending,
-		FundingTarget:       targetType,
-		FundingTargetId:     targetId,
-		ExpectedAmountMinor: amount * 100,
-		ExpectedCurrency:    "usd",
-		ExpectedLivemode:    false,
-		ExpectedQuota:       expectedQuota,
+		UserId:                  userId,
+		Amount:                  amount,
+		Money:                   float64(amount),
+		TradeNo:                 "stripe-test-" + suffix,
+		PaymentMethod:           PaymentMethodStripe,
+		PaymentProvider:         PaymentProviderStripe,
+		CreateTime:              common.GetTimestamp(),
+		Status:                  common.TopUpStatusPending,
+		FundingTarget:           targetType,
+		FundingTargetId:         targetId,
+		StripeCheckoutMethod:    StripeCheckoutMethodStandard,
+		StripePriceId:           "price_usd_snapshot",
+		ExpectedUnitAmountMinor: 100,
+		ExpectedAmountMinor:     amount * 100,
+		ExpectedCurrency:        "usd",
+		ExpectedLivemode:        false,
+		ExpectedQuota:           expectedQuota,
 	}
 	require.NoError(t, InsertStripeTopUpOrder(topUp))
 	return topUp
@@ -79,13 +120,48 @@ func completeStripeTopUpTestOrder(t *testing.T, topUp *TopUp, suffix string) *St
 		Status:           "complete",
 		PaymentStatus:    "paid",
 		AmountTotalMinor: topUp.ExpectedAmountMinor,
-		Currency:         "usd",
+		Currency:         topUp.ExpectedCurrency,
 		Livemode:         false,
 		ObjectLivemode:   false,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	return result
+}
+
+func insertStripeCNYTopUpTestOrder(
+	t *testing.T,
+	userId int,
+	targetType string,
+	targetId int,
+	amount int64,
+	unitAmountMinor int64,
+	suffix string,
+) *TopUp {
+	t.Helper()
+	expectedQuota, err := stripeExpectedQuotaForAmount(amount)
+	require.NoError(t, err)
+	topUp := &TopUp{
+		UserId:                  userId,
+		Amount:                  amount,
+		Money:                   float64(amount),
+		TradeNo:                 "stripe-cny-test-" + suffix,
+		PaymentMethod:           PaymentMethodStripe,
+		PaymentProvider:         PaymentProviderStripe,
+		CreateTime:              common.GetTimestamp(),
+		Status:                  common.TopUpStatusPending,
+		FundingTarget:           targetType,
+		FundingTargetId:         targetId,
+		StripeCheckoutMethod:    StripeCheckoutMethodWeChatPay,
+		StripePriceId:           "price_cny_snapshot",
+		ExpectedUnitAmountMinor: unitAmountMinor,
+		ExpectedAmountMinor:     amount * unitAmountMinor,
+		ExpectedCurrency:        "cny",
+		ExpectedLivemode:        false,
+		ExpectedQuota:           expectedQuota,
+	}
+	require.NoError(t, InsertStripeTopUpOrder(topUp))
+	return topUp
 }
 
 func TestStripeTopUpRejectsPersonalFundingForEveryTeamMember(t *testing.T) {
@@ -548,6 +624,113 @@ func TestStripeRefundReplayAndPartialRefundsUseCumulativeExactQuota(t *testing.T
 		totalReversed += -reversal.QuotaDelta
 	}
 	assert.Equal(t, topUp.ExpectedQuota, totalReversed)
+}
+
+func TestStripeCNYTopUpSnapshotsPersonalAndTeamRefundAccounting(t *testing.T) {
+	db := setupStripeTopUpTestDB(t)
+	personalUser := createStripeTopUpTestUser(t, db, "stripe-cny-personal")
+	personalTopUp := insertStripeCNYTopUpTestOrder(
+		t,
+		personalUser.Id,
+		StripeFundingTargetUser,
+		personalUser.Id,
+		2,
+		725,
+		"personal",
+	)
+	assert.Equal(t, "cny", personalTopUp.ExpectedCurrency)
+	assert.EqualValues(t, 1450, personalTopUp.ExpectedAmountMinor)
+	assert.EqualValues(t, 725, personalTopUp.ExpectedUnitAmountMinor)
+	assert.Equal(t, "price_cny_snapshot", personalTopUp.StripePriceId)
+	completeStripeTopUpTestOrder(t, personalTopUp, "cny_personal")
+
+	manager := createStripeTopUpTestUser(t, db, "stripe-cny-team-manager")
+	team := Team{Name: "Stripe CNY Team", Slug: "stripe-cny-team", Status: TeamStatusEnabled}
+	require.NoError(t, db.Create(&team).Error)
+	require.NoError(t, db.Create(&TeamMember{
+		TeamId: team.Id,
+		UserId: manager.Id,
+		Role:   TeamMemberRoleOwner,
+		Status: TeamMemberStatusEnabled,
+	}).Error)
+	teamTopUp := insertStripeCNYTopUpTestOrder(
+		t,
+		manager.Id,
+		StripeFundingTargetTeam,
+		team.Id,
+		2,
+		725,
+		"team",
+	)
+	completeStripeTopUpTestOrder(t, teamTopUp, "cny_team")
+
+	refund, err := ProcessStripeRefund(StripeRefundAdjustment{
+		EventId:         "evt_cny_team_refund",
+		EventCreated:    100,
+		RefundId:        "re_cny_team_refund",
+		PaymentIntentId: "pi_cny_team",
+		AmountMinor:     725,
+		Currency:        "cny",
+		Status:          "succeeded",
+		Livemode:        false,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, refund)
+	assert.Equal(t, teamTopUp.ExpectedQuota/2, refund.ReversedQuota)
+
+	teamBalance, err := GetPrepaidBalance(PrepaidTargetTeam, team.Id)
+	require.NoError(t, err)
+	assert.Equal(t, teamTopUp.ExpectedQuota/2, teamBalance.TotalQuota)
+}
+
+func TestStripeTopUpSnapshotValidationRejectsCNYMismatchAndOverflow(t *testing.T) {
+	db := setupStripeTopUpTestDB(t)
+	user := createStripeTopUpTestUser(t, db, "stripe-cny-invalid-snapshot")
+	expectedQuota, err := stripeExpectedQuotaForAmount(2)
+	require.NoError(t, err)
+	valid := TopUp{
+		UserId:                  user.Id,
+		Amount:                  2,
+		Money:                   2,
+		TradeNo:                 "stripe-cny-invalid-base",
+		PaymentMethod:           PaymentMethodStripe,
+		PaymentProvider:         PaymentProviderStripe,
+		Status:                  common.TopUpStatusPending,
+		FundingTarget:           StripeFundingTargetUser,
+		FundingTargetId:         user.Id,
+		StripeCheckoutMethod:    StripeCheckoutMethodWeChatPay,
+		StripePriceId:           "price_cny",
+		ExpectedUnitAmountMinor: 725,
+		ExpectedAmountMinor:     1450,
+		ExpectedCurrency:        "cny",
+		ExpectedQuota:           expectedQuota,
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*TopUp)
+	}{
+		{name: "wrong currency", mutate: func(topUp *TopUp) { topUp.ExpectedCurrency = "usd" }},
+		{name: "wrong total", mutate: func(topUp *TopUp) { topUp.ExpectedAmountMinor-- }},
+		{name: "missing price snapshot", mutate: func(topUp *TopUp) { topUp.StripePriceId = "" }},
+		{name: "missing unit snapshot", mutate: func(topUp *TopUp) { topUp.ExpectedUnitAmountMinor = 0 }},
+		{name: "minor amount overflow", mutate: func(topUp *TopUp) {
+			topUp.ExpectedUnitAmountMinor = math.MaxInt64
+			topUp.ExpectedAmountMinor = math.MaxInt64
+		}},
+	}
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := valid
+			candidate.TradeNo = fmt.Sprintf("stripe-cny-invalid-%d", index)
+			test.mutate(&candidate)
+			require.ErrorIs(t, InsertStripeTopUpOrder(&candidate), ErrStripeTopUpVerification)
+		})
+	}
+
+	var orderCount int64
+	require.NoError(t, db.Model(&TopUp{}).Where("trade_no LIKE ?", "stripe-cny-invalid-%").Count(&orderCount).Error)
+	assert.Zero(t, orderCount)
 }
 
 func TestStripeAdjustmentsQueuedBeforeCheckoutCompletionAreApplied(t *testing.T) {

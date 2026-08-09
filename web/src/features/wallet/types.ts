@@ -40,6 +40,7 @@ export type PaymentResponse = ApiResponse<Record<string, unknown>> & {
 }
 export type StripePaymentResponse = ApiResponse<{ pay_link: string }>
 export type StripeCheckoutMethod = 'standard' | 'wechat_pay'
+export type PaymentCurrencyCode = 'USD' | 'CNY'
 export type AffiliateCodeResponse = ApiResponse<string>
 export type AffiliateTransferResponse = ApiResponse
 export type CreemPaymentResponse = ApiResponse<{ checkout_url: string }>
@@ -104,6 +105,15 @@ export interface PaymentMethod {
   /** Stripe-hosted checkout variant; absent means the standard checkout. */
   checkout_method?: StripeCheckoutMethod
 }
+
+export type PaymentConfirmationSnapshot = Readonly<{
+  creditAmount: number
+  quotedPaymentAmount: number
+  paymentMethod: Readonly<PaymentMethod>
+  checkoutMethod?: StripeCheckoutMethod
+  currencyCode?: PaymentCurrencyCode
+  waffoMethodIndex: number | null
+}>
 
 /**
  * Waffo payment method configuration
@@ -228,6 +238,8 @@ export interface WaffoPancakePaymentRequest {
 export interface AmountRequest {
   /** Topup amount to calculate */
   amount: number
+  /** Stripe checkout variant; omitted requests retain the standard quote. */
+  checkout_method?: StripeCheckoutMethod
 }
 
 /**

@@ -19,30 +19,35 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { PAYMENT_TYPES } from '../constants'
+import { PAYMENT_TYPES, STRIPE_CHECKOUT_METHODS } from '../constants'
 import { requestPaymentAmount } from './use-payment'
 
 describe('payment amount routing', () => {
   test('uses the dedicated Waffo amount calculator', async () => {
     const calls: string[] = []
-    const amount = await requestPaymentAmount(120, PAYMENT_TYPES.WAFFO, {
-      regular: async () => {
-        calls.push('regular')
-        return { success: true, data: '1' }
-      },
-      stripe: async () => {
-        calls.push('stripe')
-        return { success: true, data: '2' }
-      },
-      waffo: async (request) => {
-        calls.push(`waffo:${request.amount}`)
-        return { success: true, data: '18.75' }
-      },
-      waffoPancake: async () => {
-        calls.push('pancake')
-        return { success: true, data: '4' }
-      },
-    })
+    const amount = await requestPaymentAmount(
+      120,
+      PAYMENT_TYPES.WAFFO,
+      STRIPE_CHECKOUT_METHODS.STANDARD,
+      {
+        regular: async () => {
+          calls.push('regular')
+          return { success: true, data: '1' }
+        },
+        stripe: async () => {
+          calls.push('stripe')
+          return { success: true, data: '2' }
+        },
+        waffo: async (request) => {
+          calls.push(`waffo:${request.amount}`)
+          return { success: true, data: '18.75' }
+        },
+        waffoPancake: async () => {
+          calls.push('pancake')
+          return { success: true, data: '4' }
+        },
+      }
+    )
 
     assert.equal(amount, 18.75)
     assert.deepEqual(calls, ['waffo:120'])
@@ -72,10 +77,53 @@ describe('payment amount routing', () => {
     const amount = await requestPaymentAmount(
       10.5,
       PAYMENT_TYPES.WAFFO,
+      STRIPE_CHECKOUT_METHODS.STANDARD,
       calculators
     )
 
     assert.equal(amount, 0)
     assert.deepEqual(calls, [])
+  })
+
+  test('sends the selected Stripe checkout method with each quote request', async () => {
+    const stripeRequests: Array<{
+      amount: number
+      checkout_method?: string
+    }> = []
+    const calculators = {
+      regular: async () => ({ success: true, data: '1' }),
+      stripe: async (request: { amount: number; checkout_method?: string }) => {
+        stripeRequests.push(request)
+        return {
+          success: true,
+          data:
+            request.checkout_method === STRIPE_CHECKOUT_METHODS.WECHAT_PAY
+              ? '14.40'
+              : '2.00',
+        }
+      },
+      waffo: async () => ({ success: true, data: '1' }),
+      waffoPancake: async () => ({ success: true, data: '1' }),
+    }
+
+    const standardAmount = await requestPaymentAmount(
+      2,
+      PAYMENT_TYPES.STRIPE,
+      STRIPE_CHECKOUT_METHODS.STANDARD,
+      calculators
+    )
+    const weChatAmount = await requestPaymentAmount(
+      2,
+      PAYMENT_TYPES.STRIPE,
+      STRIPE_CHECKOUT_METHODS.WECHAT_PAY,
+      calculators
+    )
+
+    assert.equal(standardAmount, 2)
+    assert.equal(weChatAmount, 14.4)
+    assert.deepEqual(stripeRequests, [
+      { amount: 2, checkout_method: 'standard' },
+      { amount: 2, checkout_method: 'wechat_pay' },
+    ])
   })
 })

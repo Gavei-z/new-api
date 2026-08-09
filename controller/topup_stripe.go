@@ -7,7 +7,6 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -29,13 +28,14 @@ const (
 	stripeMinimumTopUp                  = model.StripeMinimumTopUpUSD
 	stripeMaximumTopUp                  = model.StripeMaximumTopUpUSD
 	stripeWebhookBodyMaxSize      int64 = 1 << 20
-	stripeCheckoutMethodStandard        = "standard"
-	stripeCheckoutMethodWeChatPay       = "wechat_pay"
+	stripeCheckoutMethodStandard        = model.StripeCheckoutMethodStandard
+	stripeCheckoutMethodWeChatPay       = model.StripeCheckoutMethodWeChatPay
 )
 
 var (
-	stripeAdaptor            = &StripeAdaptor{}
-	stripeCheckoutSessionNew = session.New
+	stripeAdaptor               = &StripeAdaptor{}
+	stripeCheckoutSessionNew    = session.New
+	stripeCheckoutSessionExpire = session.Expire
 )
 
 // StripePayRequest represents an integer USD prepaid-credit purchase.
@@ -50,6 +50,14 @@ type StripePayRequest struct {
 }
 
 type StripeAdaptor struct{}
+
+type stripeCheckoutTerms struct {
+	CheckoutMethod      string
+	PriceID             string
+	Currency            string
+	UnitAmountMinor     int64
+	ExpectedAmountMinor int64
+}
 
 func stripeQuotaForAmount(amount int64) (int64, error) {
 	if amount < stripeMinimumTopUp || amount > stripeMaximumTopUp {
@@ -105,6 +113,36 @@ func requireStripeCheckoutMethodEnabled(checkoutMethod string) error {
 	return nil
 }
 
+func resolveStripeCheckoutTerms(checkoutMethod string, amount int64) (stripeCheckoutTerms, error) {
+	checkoutMethod, err := normalizeStripeCheckoutMethod(checkoutMethod)
+	if err != nil {
+		return stripeCheckoutTerms{}, err
+	}
+	terms := stripeCheckoutTerms{
+		CheckoutMethod:  checkoutMethod,
+		PriceID:         setting.GetStripePriceId(),
+		Currency:        "usd",
+		UnitAmountMinor: 100,
+	}
+	if checkoutMethod == stripeCheckoutMethodWeChatPay {
+		terms.PriceID = setting.GetStripeWeChatCNYPriceId()
+		terms.Currency = "cny"
+		terms.UnitAmountMinor = setting.GetStripeWeChatCNYUnitAmountMinor()
+	}
+	if strings.TrimSpace(terms.PriceID) == "" || len(terms.PriceID) > 255 || terms.UnitAmountMinor <= 0 {
+		return stripeCheckoutTerms{}, errors.New("Stripe checkout pricing is unavailable")
+	}
+	if amount <= 0 || amount > math.MaxInt64/terms.UnitAmountMinor {
+		return stripeCheckoutTerms{}, errors.New("Stripe checkout amount is out of range")
+	}
+	terms.ExpectedAmountMinor = amount * terms.UnitAmountMinor
+	return terms, nil
+}
+
+func formatStripeMinorAmount(amountMinor int64) string {
+	return fmt.Sprintf("%d.%02d", amountMinor/100, amountMinor%100)
+}
+
 func validateStripePayRequest(req *StripePayRequest) (int64, error) {
 	if req == nil {
 		return 0, errors.New("invalid payment request")
@@ -136,13 +174,18 @@ func (*StripeAdaptor) RequestAmount(c *gin.Context, req *StripePayRequest, targe
 		writeStripeRequestError(c, err.Error())
 		return
 	}
+	terms, err := resolveStripeCheckoutTerms(checkoutMethod, req.Amount)
+	if err != nil {
+		writeStripeRequestError(c, err.Error())
+		return
+	}
 	if _, err := resolveStripeFundingTarget(c, targetType); err != nil {
 		writeStripeRequestError(c, err.Error())
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
-		"data":    strconv.FormatInt(req.Amount, 10) + ".00",
+		"data":    formatStripeMinorAmount(terms.ExpectedAmountMinor),
 	})
 }
 
@@ -165,6 +208,11 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest, targetTy
 		return
 	}
 	if err := requireStripeCheckoutMethodEnabled(checkoutMethod); err != nil {
+		writeStripeRequestError(c, err.Error())
+		return
+	}
+	terms, err := resolveStripeCheckoutTerms(checkoutMethod, req.Amount)
+	if err != nil {
 		writeStripeRequestError(c, err.Error())
 		return
 	}
@@ -193,20 +241,23 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest, targetTy
 	referenceID := "ref_" + common.Sha1([]byte(reference))
 	expectedLivemode := stripeSecretIsLivemode(setting.GetStripeApiSecret())
 	topUp := &model.TopUp{
-		UserId:              userID,
-		Amount:              req.Amount,
-		Money:               float64(req.Amount),
-		TradeNo:             referenceID,
-		PaymentMethod:       model.PaymentMethodStripe,
-		PaymentProvider:     model.PaymentProviderStripe,
-		CreateTime:          time.Now().Unix(),
-		Status:              common.TopUpStatusPending,
-		FundingTarget:       targetType,
-		FundingTargetId:     targetID,
-		ExpectedAmountMinor: req.Amount * 100,
-		ExpectedCurrency:    "usd",
-		ExpectedLivemode:    expectedLivemode,
-		ExpectedQuota:       expectedQuota,
+		UserId:                  userID,
+		Amount:                  req.Amount,
+		Money:                   float64(req.Amount),
+		TradeNo:                 referenceID,
+		PaymentMethod:           model.PaymentMethodStripe,
+		PaymentProvider:         model.PaymentProviderStripe,
+		CreateTime:              time.Now().Unix(),
+		Status:                  common.TopUpStatusPending,
+		FundingTarget:           targetType,
+		FundingTargetId:         targetID,
+		StripeCheckoutMethod:    terms.CheckoutMethod,
+		StripePriceId:           terms.PriceID,
+		ExpectedUnitAmountMinor: terms.UnitAmountMinor,
+		ExpectedAmountMinor:     terms.ExpectedAmountMinor,
+		ExpectedCurrency:        terms.Currency,
+		ExpectedLivemode:        expectedLivemode,
+		ExpectedQuota:           expectedQuota,
 	}
 	if err := model.InsertStripeTopUpOrder(topUp); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Stripe order creation failed trade_no=%s error=%q", referenceID, err.Error()))
@@ -222,7 +273,7 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest, targetTy
 		req.Amount,
 		successURL,
 		cancelURL,
-		checkoutMethod,
+		terms,
 	)
 	if err != nil {
 		_ = model.FailPendingStripeTopUp(referenceID, common.TopUpStatusFailed)
@@ -239,6 +290,19 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest, targetTy
 		checkoutSession.Livemode != expectedLivemode ||
 		checkoutSession.AmountTotal != topUp.ExpectedAmountMinor ||
 		strings.ToLower(string(checkoutSession.Currency)) != topUp.ExpectedCurrency {
+		if checkoutSession.ID != "" {
+			if _, expireErr := stripeCheckoutSessionExpire(
+				checkoutSession.ID,
+				&stripe.CheckoutSessionExpireParams{},
+			); expireErr != nil {
+				logger.LogError(c.Request.Context(), fmt.Sprintf(
+					"Stripe mismatched Checkout Session expiration failed trade_no=%s session_id=%s error=%q",
+					referenceID,
+					checkoutSession.ID,
+					expireErr.Error(),
+				))
+			}
+		}
 		_ = model.FlagStripeTopUpReconciliation(referenceID, "checkout session response did not match expected amount, currency, or mode")
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Stripe Checkout Session response invalid trade_no=%s", referenceID))
 		writeStripeRequestError(c, "failed to start payment")
@@ -691,21 +755,32 @@ func createStripeCheckoutSession(
 	amount int64,
 	successURL string,
 	cancelURL string,
-	checkoutMethod string,
+	terms stripeCheckoutTerms,
 ) (*stripe.CheckoutSession, error) {
-	normalizedCheckoutMethod, err := normalizeStripeCheckoutMethod(checkoutMethod)
+	normalizedCheckoutMethod, err := normalizeStripeCheckoutMethod(terms.CheckoutMethod)
 	if err != nil {
 		return nil, err
 	}
-	checkoutMethod = normalizedCheckoutMethod
+	if normalizedCheckoutMethod != terms.CheckoutMethod ||
+		strings.TrimSpace(terms.PriceID) == "" ||
+		len(terms.PriceID) > 255 ||
+		terms.UnitAmountMinor <= 0 ||
+		amount <= 0 ||
+		amount > math.MaxInt64/terms.UnitAmountMinor ||
+		terms.ExpectedAmountMinor != amount*terms.UnitAmountMinor {
+		return nil, errors.New("invalid Stripe Checkout terms")
+	}
+	if terms.CheckoutMethod == stripeCheckoutMethodStandard {
+		if terms.Currency != "usd" || terms.UnitAmountMinor != 100 {
+			return nil, errors.New("invalid standard Stripe Checkout terms")
+		}
+	} else if terms.Currency != "cny" {
+		return nil, errors.New("invalid WeChat Pay Checkout terms")
+	}
 
 	secret := setting.GetStripeApiSecret()
 	if !strings.HasPrefix(secret, "sk_") && !strings.HasPrefix(secret, "rk_") {
 		return nil, errors.New("invalid Stripe API key")
-	}
-	priceID := setting.GetStripePriceId()
-	if priceID == "" {
-		return nil, errors.New("Stripe Price is not configured")
 	}
 	stripe.Key = secret
 
@@ -715,7 +790,7 @@ func createStripeCheckoutSession(
 		CancelURL:         stripe.String(cancelURL),
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{
-				Price:    stripe.String(priceID),
+				Price:    stripe.String(terms.PriceID),
 				Quantity: stripe.Int64(amount),
 			},
 		},
@@ -724,15 +799,16 @@ func createStripeCheckoutSession(
 		PaymentIntentData: &stripe.CheckoutSessionPaymentIntentDataParams{
 			Metadata: map[string]string{
 				"topup_reference": referenceID,
-				"checkout_method": checkoutMethod,
+				"checkout_method": terms.CheckoutMethod,
 			},
 		},
 		Metadata: map[string]string{
 			"topup_reference": referenceID,
-			"checkout_method": checkoutMethod,
+			"checkout_method": terms.CheckoutMethod,
 		},
 	}
-	if checkoutMethod == stripeCheckoutMethodWeChatPay {
+	if terms.CheckoutMethod == stripeCheckoutMethodWeChatPay {
+		params.Currency = stripe.String(terms.Currency)
 		params.PaymentMethodTypes = []*string{
 			stripe.String(string(stripe.PaymentMethodTypeWeChatPay)),
 		}
@@ -740,9 +816,6 @@ func createStripeCheckoutSession(
 			WeChatPay: &stripe.CheckoutSessionPaymentMethodOptionsWeChatPayParams{
 				Client: stripe.String(string(stripe.PaymentIntentPaymentMethodOptionsWeChatPayClientWeb)),
 			},
-		}
-		params.AdaptivePricing = &stripe.CheckoutSessionAdaptivePricingParams{
-			Enabled: stripe.Bool(true),
 		}
 	}
 	params.SetIdempotencyKey("stripe-topup:" + referenceID)
@@ -769,6 +842,10 @@ func genStripeLink(referenceID string, customerID string, email string, amount i
 	if successURL == "" || cancelURL == "" {
 		successURL, cancelURL = stripeReturnURLs(model.StripeFundingTargetUser, successURL, cancelURL)
 	}
+	terms, err := resolveStripeCheckoutTerms(stripeCheckoutMethodStandard, amount)
+	if err != nil {
+		return "", err
+	}
 	checkoutSession, err := createStripeCheckoutSession(
 		referenceID,
 		customerID,
@@ -776,7 +853,7 @@ func genStripeLink(referenceID string, customerID string, email string, amount i
 		amount,
 		successURL,
 		cancelURL,
-		stripeCheckoutMethodStandard,
+		terms,
 	)
 	if err != nil {
 		return "", err

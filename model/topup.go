@@ -28,16 +28,19 @@ type TopUp struct {
 
 	// Stripe prepaid-credit orders snapshot every value used for fulfillment.
 	// The target is resolved from authentication state, never from request JSON.
-	FundingTarget       string  `json:"funding_target,omitempty" gorm:"type:varchar(16);index"`
-	FundingTargetId     int     `json:"funding_target_id,omitempty" gorm:"index"`
-	StripeSessionId     *string `json:"-" gorm:"type:varchar(255);uniqueIndex"`
-	StripePaymentIntent *string `json:"-" gorm:"type:varchar(255);uniqueIndex"`
-	StripeCompleteEvent string  `json:"-" gorm:"type:varchar(255)"`
-	ExpectedAmountMinor int64   `json:"-" gorm:"type:bigint"`
-	ExpectedCurrency    string  `json:"-" gorm:"type:varchar(8)"`
-	ExpectedLivemode    bool    `json:"-"`
-	ExpectedQuota       int64   `json:"-" gorm:"type:bigint"`
-	CreditedQuota       int64   `json:"credited_quota,omitempty" gorm:"type:bigint"`
+	FundingTarget           string  `json:"funding_target,omitempty" gorm:"type:varchar(16);index"`
+	FundingTargetId         int     `json:"funding_target_id,omitempty" gorm:"index"`
+	StripeSessionId         *string `json:"-" gorm:"type:varchar(255);uniqueIndex"`
+	StripePaymentIntent     *string `json:"-" gorm:"type:varchar(255);uniqueIndex"`
+	StripeCompleteEvent     string  `json:"-" gorm:"type:varchar(255)"`
+	StripeCheckoutMethod    string  `json:"-" gorm:"type:varchar(16)"`
+	StripePriceId           string  `json:"-" gorm:"type:varchar(255)"`
+	ExpectedUnitAmountMinor int64   `json:"-" gorm:"type:bigint"`
+	ExpectedAmountMinor     int64   `json:"-" gorm:"type:bigint"`
+	ExpectedCurrency        string  `json:"-" gorm:"type:varchar(8)"`
+	ExpectedLivemode        bool    `json:"-"`
+	ExpectedQuota           int64   `json:"-" gorm:"type:bigint"`
+	CreditedQuota           int64   `json:"credited_quota,omitempty" gorm:"type:bigint"`
 
 	// ReversedQuota is the total valid refund/dispute liability. Applied quota
 	// may be lower when credits were already consumed; that gap requires manual
@@ -69,10 +72,12 @@ const (
 )
 
 const (
-	StripeFundingTargetUser       = PrepaidTargetUser
-	StripeFundingTargetTeam       = PrepaidTargetTeam
-	StripeMinimumTopUpUSD   int64 = 2
-	StripeMaximumTopUpUSD   int64 = 50000
+	StripeFundingTargetUser             = PrepaidTargetUser
+	StripeFundingTargetTeam             = PrepaidTargetTeam
+	StripeMinimumTopUpUSD         int64 = 2
+	StripeMaximumTopUpUSD         int64 = 50000
+	StripeCheckoutMethodStandard        = "standard"
+	StripeCheckoutMethodWeChatPay       = "wechat_pay"
 )
 
 var (
@@ -309,9 +314,7 @@ func InsertStripeTopUpOrder(topUp *TopUp) error {
 		topUp.Status != common.TopUpStatusPending {
 		return ErrPaymentMethodMismatch
 	}
-	if topUp.ExpectedCurrency != "usd" ||
-		topUp.ExpectedAmountMinor != topUp.Amount*100 ||
-		topUp.Money != float64(topUp.Amount) {
+	if topUp.Money != float64(topUp.Amount) {
 		return ErrStripeTopUpVerification
 	}
 	expectedQuota, err := stripeExpectedQuotaForAmount(topUp.Amount)
@@ -320,6 +323,43 @@ func InsertStripeTopUpOrder(topUp *TopUp) error {
 	}
 	if expectedQuota != topUp.ExpectedQuota {
 		return ErrStripeTopUpVerification
+	}
+	checkoutMethod := topUp.StripeCheckoutMethod
+	unitAmountMinor := topUp.ExpectedUnitAmountMinor
+	switch checkoutMethod {
+	case "":
+		// Rows created before checkout snapshots were introduced are legacy USD
+		// orders. Keep accepting that exact shape for rolling upgrades and tests;
+		// all new controller-created orders populate the explicit fields below.
+		if strings.TrimSpace(topUp.StripePriceId) != "" ||
+			unitAmountMinor != 0 ||
+			topUp.ExpectedCurrency != "usd" ||
+			topUp.ExpectedAmountMinor != topUp.Amount*100 {
+			return ErrStripeTopUpVerification
+		}
+	case StripeCheckoutMethodStandard:
+		if strings.TrimSpace(topUp.StripePriceId) == "" ||
+			unitAmountMinor != 100 ||
+			topUp.ExpectedCurrency != "usd" {
+			return ErrStripeTopUpVerification
+		}
+	case StripeCheckoutMethodWeChatPay:
+		if strings.TrimSpace(topUp.StripePriceId) == "" ||
+			unitAmountMinor <= 0 ||
+			topUp.ExpectedCurrency != "cny" {
+			return ErrStripeTopUpVerification
+		}
+	default:
+		return ErrStripeTopUpVerification
+	}
+	if len(topUp.StripePriceId) > 255 {
+		return ErrStripeTopUpVerification
+	}
+	if checkoutMethod != "" {
+		if topUp.Amount > math.MaxInt64/unitAmountMinor ||
+			topUp.ExpectedAmountMinor != topUp.Amount*unitAmountMinor {
+			return ErrStripeTopUpVerification
+		}
 	}
 	if len(topUp.TradeNo) > 255 {
 		return errors.New("Stripe order reference is too long")

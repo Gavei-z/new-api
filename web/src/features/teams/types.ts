@@ -138,6 +138,11 @@ export type TeamStripeTopupPayload = {
   checkout_method: StripeCheckoutMethod
 }
 
+export type TeamStripeAmountPayload = {
+  amount: number
+  checkout_method: StripeCheckoutMethod
+}
+
 export type TeamStripeCheckoutRequest = {
   amount: number
   checkoutMethod: StripeCheckoutMethod

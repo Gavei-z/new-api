@@ -19,7 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { createTeamStripeTopupPayload } from '../lib'
+import {
+  createTeamStripeAmountPayload,
+  createTeamStripeTopupPayload,
+} from '../lib'
 
 describe('team Stripe top-up target contract', () => {
   test('sends the allowlisted checkout method while the server derives the team', () => {
@@ -39,6 +42,17 @@ describe('team Stripe top-up target contract', () => {
       amount: 2,
       payment_method: 'stripe',
       checkout_method: 'standard',
+    })
+  })
+
+  test('keeps standard and WeChat quote requests separated by method', () => {
+    assert.deepEqual(createTeamStripeAmountPayload(2, 'standard'), {
+      amount: 2,
+      checkout_method: 'standard',
+    })
+    assert.deepEqual(createTeamStripeAmountPayload(2, 'wechat_pay'), {
+      amount: 2,
+      checkout_method: 'wechat_pay',
     })
   })
 })

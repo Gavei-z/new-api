@@ -60,3 +60,18 @@ func TestStripeWeChatPayRequiresExplicitEnvironmentEnablement(t *testing.T) {
 	t.Setenv("STRIPE_WECHAT_PAY_ENABLED", "invalid")
 	assert.False(t, IsStripeWeChatPayEnabled())
 }
+
+func TestStripeWeChatCNYConfigurationIsEnvironmentManagedAndStrict(t *testing.T) {
+	t.Setenv("STRIPE_WECHAT_CNY_PRICE_ID", " price_cny_or_multicurrency ")
+	t.Setenv("STRIPE_WECHAT_CNY_UNIT_AMOUNT_MINOR", " 725 ")
+
+	assert.Equal(t, "price_cny_or_multicurrency", GetStripeWeChatCNYPriceId())
+	assert.EqualValues(t, 725, GetStripeWeChatCNYUnitAmountMinor())
+
+	for _, invalid := range []string{"", "0", "-1", "7.25", "not-a-number", "9223372036854775808"} {
+		t.Run(invalid, func(t *testing.T) {
+			t.Setenv("STRIPE_WECHAT_CNY_UNIT_AMOUNT_MINOR", invalid)
+			assert.Zero(t, GetStripeWeChatCNYUnitAmountMinor())
+		})
+	}
+}

@@ -63,7 +63,7 @@ const reactTestGlobals = globalThis as typeof globalThis & {
 }
 reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 
-async function renderDialog(paymentMethod: PaymentMethod) {
+async function renderDialog(paymentMethod: PaymentMethod, paymentAmount = 2) {
   const i18n = createInstance()
   await i18n.use(initReactI18next).init({
     lng: 'en',
@@ -75,6 +75,11 @@ async function renderDialog(paymentMethod: PaymentMethod) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
+  let currencyCode: 'USD' | 'CNY' | undefined
+  if (paymentMethod.type === 'stripe') {
+    currencyCode =
+      paymentMethod.checkout_method === 'wechat_pay' ? 'CNY' : 'USD'
+  }
 
   await act(async () => {
     root.render(
@@ -84,11 +89,11 @@ async function renderDialog(paymentMethod: PaymentMethod) {
           onOpenChange={() => undefined}
           onConfirm={() => undefined}
           topupAmount={2}
-          paymentAmount={2}
+          paymentAmount={paymentAmount}
           paymentMethod={paymentMethod}
           calculating={false}
           processing={false}
-          currencyCode='USD'
+          currencyCode={currencyCode}
           stripeCheckoutMethod={paymentMethod.checkout_method}
         />
       </I18nextProvider>
@@ -119,6 +124,9 @@ describe('payment confirmation provider details', () => {
     const hasStripe = dialog?.textContent?.includes('Stripe')
 
     assert.ok(dialog)
+    assert.equal(dialog.textContent?.includes('USD credit amount'), true)
+    assert.equal(dialog.textContent?.includes('$2.00 USD'), true)
+    assert.equal(dialog.textContent?.includes('You Pay'), true)
     await unmountDialog(rendered)
     assert.equal(hasPaymentMethod, false)
     assert.equal(hasStripe, false)
@@ -141,12 +149,15 @@ describe('payment confirmation provider details', () => {
     assert.equal(hasProvider, true)
   })
 
-  test('explains local-currency conversion for WeChat Pay', async () => {
-    const rendered = await renderDialog({
-      name: 'WeChat Pay',
-      type: 'stripe',
-      checkout_method: 'wechat_pay',
-    })
+  test('shows fixed CNY payment separately from the selected USD credit', async () => {
+    const rendered = await renderDialog(
+      {
+        name: 'WeChat Pay',
+        type: 'stripe',
+        checkout_method: 'wechat_pay',
+      },
+      14.4
+    )
     const dialog = document.body.querySelector<HTMLElement>(
       '[data-slot="alert-dialog-content"]'
     )
@@ -155,13 +166,27 @@ describe('payment confirmation provider details', () => {
     assert.equal(dialog.textContent?.includes('WeChat Pay'), true)
     assert.equal(
       dialog.textContent?.includes(
-        'The final converted local-currency amount will be shown on the checkout page before payment.'
+        'WeChat checkout displays the final amount in CNY; your wallet is credited with the selected USD amount.'
       ),
       true
     )
     assert.equal(dialog.textContent?.includes('Stripe'), false)
     assert.equal(dialog.textContent?.includes('USD credit amount'), true)
-    assert.equal(dialog.textContent?.includes('You Pay'), false)
+    assert.equal(dialog.textContent?.includes('$2.00 USD'), true)
+    assert.equal(dialog.textContent?.includes('You Pay'), true)
+    assert.equal(dialog.textContent?.includes('¥14.40 CNY'), true)
+    assert.equal(dialog.textContent?.includes('$14.40 USD'), false)
+    const quote = dialog.querySelector<HTMLElement>(
+      '[data-slot="payment-confirm-quote"]'
+    )
+    const accessibleWeChatText = [
+      ...dialog.querySelectorAll<HTMLElement>('div'),
+    ].find((element) => element.textContent?.trim() === 'WeChat Pay')
+    assert.equal(quote?.getAttribute('aria-live'), 'polite')
+    assert.equal(
+      accessibleWeChatText?.classList.contains('text-[#067a3b]'),
+      true
+    )
 
     await unmountDialog(rendered)
   })

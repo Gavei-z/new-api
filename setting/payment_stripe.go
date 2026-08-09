@@ -35,6 +35,28 @@ func GetStripePriceId() string {
 	return stripeEnvironmentValue("STRIPE_PRICE_ID", StripePriceId)
 }
 
+// GetStripeWeChatCNYPriceId returns the Price used only for WeChat Pay.
+// The Price can be a dedicated CNY Price or the same multi-currency Price ID
+// used by standard Checkout, provided it has a CNY currency option.
+func GetStripeWeChatCNYPriceId() string {
+	return strings.TrimSpace(os.Getenv("STRIPE_WECHAT_CNY_PRICE_ID"))
+}
+
+// GetStripeWeChatCNYUnitAmountMinor returns the CNY minor-unit charge for one
+// USD of UniRouters wallet credit. Invalid, missing, and non-positive values
+// are deliberately unavailable rather than falling back to an exchange rate.
+func GetStripeWeChatCNYUnitAmountMinor() int64 {
+	unitAmountMinor, err := strconv.ParseInt(
+		strings.TrimSpace(os.Getenv("STRIPE_WECHAT_CNY_UNIT_AMOUNT_MINOR")),
+		10,
+		64,
+	)
+	if err != nil || unitAmountMinor <= 0 {
+		return 0
+	}
+	return unitAmountMinor
+}
+
 // IsStripeWeChatPayEnabled is an explicit deployment-level kill switch for
 // the WeChat-only Checkout variant. Stripe credentials alone do not prove
 // that the connected account has an active WeChat Pay capability.

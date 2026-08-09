@@ -24,6 +24,7 @@ import {
   STRIPE_CHECKOUT_METHODS,
 } from '../constants'
 import type {
+  PaymentConfirmationSnapshot,
   PaymentMethod,
   PresetAmount,
   StripeCheckoutMethod,
@@ -142,6 +143,30 @@ export interface PaymentProcessors {
   waffoPancake: (topupAmount: number) => Promise<boolean>
 }
 
+export function createPaymentConfirmationSnapshot(
+  creditAmount: number,
+  quotedPaymentAmount: number,
+  paymentMethod: PaymentMethod,
+  waffoMethodIndex: number | null
+): PaymentConfirmationSnapshot {
+  let checkoutMethod: StripeCheckoutMethod | undefined
+  let currencyCode: PaymentConfirmationSnapshot['currencyCode']
+  if (isStripePayment(paymentMethod.type)) {
+    checkoutMethod = getStripeCheckoutMethod(paymentMethod)
+    currencyCode =
+      checkoutMethod === STRIPE_CHECKOUT_METHODS.WECHAT_PAY ? 'CNY' : 'USD'
+  }
+
+  return Object.freeze({
+    creditAmount,
+    quotedPaymentAmount,
+    paymentMethod: Object.freeze({ ...paymentMethod }),
+    checkoutMethod,
+    currencyCode,
+    waffoMethodIndex,
+  })
+}
+
 export async function dispatchSelectedPayment(
   paymentMethod: PaymentMethod,
   topupAmount: number,
@@ -169,6 +194,18 @@ export async function dispatchSelectedPayment(
     isStripePayment(paymentMethod.type)
       ? getStripeCheckoutMethod(paymentMethod)
       : undefined
+  )
+}
+
+export function dispatchPaymentConfirmation(
+  snapshot: PaymentConfirmationSnapshot,
+  processors: PaymentProcessors
+): Promise<boolean> {
+  return dispatchSelectedPayment(
+    snapshot.paymentMethod,
+    snapshot.creditAmount,
+    snapshot.waffoMethodIndex,
+    processors
   )
 }
 

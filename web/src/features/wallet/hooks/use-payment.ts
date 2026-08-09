@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import i18next from 'i18next'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -29,6 +29,7 @@ import {
   requestStripePayment,
   isApiSuccess,
 } from '../api'
+import { STRIPE_CHECKOUT_METHODS } from '../constants'
 import {
   isStripePayment,
   isIntegerTopupAmount,
@@ -66,6 +67,7 @@ const defaultPaymentAmountCalculators: PaymentAmountCalculators = {
 export async function requestPaymentAmount(
   topupAmount: number,
   paymentType: string,
+  stripeCheckoutMethod: StripeCheckoutMethod = STRIPE_CHECKOUT_METHODS.STANDARD,
   calculators: PaymentAmountCalculators = defaultPaymentAmountCalculators
 ): Promise<number> {
   if (!isIntegerTopupAmount(topupAmount)) {
@@ -81,7 +83,12 @@ export async function requestPaymentAmount(
     calculator = calculators.waffoPancake
   }
 
-  const response = await calculator({ amount: topupAmount })
+  const request: AmountRequest = { amount: topupAmount }
+  if (isStripePayment(paymentType)) {
+    request.checkout_method = stripeCheckoutMethod
+  }
+
+  const response = await calculator(request)
   if (!isApiSuccess(response) || !response.data) {
     return 0
   }
@@ -89,31 +96,78 @@ export async function requestPaymentAmount(
   return Number.parseFloat(response.data)
 }
 
-export function usePayment() {
+export function usePayment(
+  calculators: PaymentAmountCalculators = defaultPaymentAmountCalculators
+) {
   const [amount, setAmount] = useState<number>(0)
   const [calculating, setCalculating] = useState(false)
   const [processing, setProcessing] = useState(false)
+  const amountRequestIdRef = useRef(0)
 
   // Calculate payment amount
   const calculatePaymentAmount = useCallback(
-    async (topupAmount: number, paymentType: string) => {
+    async (
+      topupAmount: number,
+      paymentType: string,
+      stripeCheckoutMethod: StripeCheckoutMethod = STRIPE_CHECKOUT_METHODS.STANDARD
+    ) => {
+      const requestId = ++amountRequestIdRef.current
       try {
         setCalculating(true)
         const calculatedAmount = await requestPaymentAmount(
           topupAmount,
-          paymentType
+          paymentType,
+          stripeCheckoutMethod,
+          calculators
         )
-        setAmount(calculatedAmount)
+        if (requestId === amountRequestIdRef.current) {
+          setAmount(calculatedAmount)
+        }
         return calculatedAmount
       } catch {
-        setAmount(0)
+        if (requestId === amountRequestIdRef.current) {
+          setAmount(0)
+        }
         return 0
       } finally {
-        setCalculating(false)
+        if (requestId === amountRequestIdRef.current) {
+          setCalculating(false)
+        }
       }
     },
-    []
+    [calculators]
   )
+
+  // Checkout quotes are immutable confirmation inputs. They invalidate any
+  // older background preview but never write CNY or method-specific values
+  // into the form's shared preview amount.
+  const quotePaymentAmount = useCallback(
+    async (
+      topupAmount: number,
+      paymentType: string,
+      stripeCheckoutMethod: StripeCheckoutMethod = STRIPE_CHECKOUT_METHODS.STANDARD
+    ) => {
+      amountRequestIdRef.current += 1
+      setCalculating(false)
+      try {
+        return await requestPaymentAmount(
+          topupAmount,
+          paymentType,
+          stripeCheckoutMethod,
+          calculators
+        )
+      } catch {
+        return 0
+      }
+    },
+    [calculators]
+  )
+
+  const replacePaymentAmount = useCallback((nextAmount: number) => {
+    amountRequestIdRef.current += 1
+    setCalculating(false)
+    setAmount(nextAmount)
+  }, [])
 
   // Process payment
   const processPayment = useCallback(
@@ -182,7 +236,8 @@ export function usePayment() {
     calculating,
     processing,
     calculatePaymentAmount,
+    quotePaymentAmount,
     processPayment,
-    setAmount,
+    setAmount: replacePaymentAmount,
   }
 }

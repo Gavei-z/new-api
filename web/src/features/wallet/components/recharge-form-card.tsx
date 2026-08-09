@@ -210,7 +210,7 @@ export function RechargeFormCard({
     displayedPaymentAmount = '—'
   } else if (hasUsdStripe) {
     displayedPaymentAmount =
-      stripeValidation === null ? `${formatUsdAmount(paymentAmount)} USD` : '—'
+      stripeValidation === null ? `${formatUsdAmount(topupAmount)} USD` : '—'
   }
   let singlePaymentDisabledReason = ''
   if (
@@ -457,9 +457,10 @@ export function RechargeFormCard({
                   </p>
                   <div
                     data-slot='wallet-payment-total-display'
+                    aria-live='polite'
                     className='bg-muted/30 flex h-10 items-center justify-start rounded-lg border px-3'
                   >
-                    {calculating ? (
+                    {calculating && !hasUsdStripe ? (
                       <Skeleton className='h-5 w-16' />
                     ) : (
                       <span className='text-base font-semibold'>
@@ -517,7 +518,7 @@ export function RechargeFormCard({
                             ? `${t('WeChat Pay')}. ${singlePaymentDisabledReason}`
                             : t('WeChat Pay')
                         }
-                        className='h-10 w-full border-[#07C160]/50 text-[#079447] hover:border-[#07C160] hover:bg-[#07C160]/5 hover:text-[#067a3b] sm:min-w-52 dark:text-[#41d17c] dark:hover:text-[#5fe494]'
+                        className='h-10 w-full border-[#07C160]/50 text-[#067a3b] hover:border-[#07C160] hover:bg-[#07C160]/5 hover:text-[#067a3b] sm:min-w-52 dark:text-[#41d17c] dark:hover:text-[#5fe494]'
                       >
                         {paymentLoading === stripeWeChatLoadingKey ? (
                           <Loader2 className='h-4 w-4 animate-spin' />
@@ -665,7 +666,7 @@ export function RechargeFormCard({
                                 ? `${t('WeChat Pay')}. ${disabledReason}`
                                 : t('WeChat Pay')
                             }
-                            className='min-h-14 min-w-0 justify-start gap-2 rounded-lg border-[#07C160]/50 px-3 py-2 text-left text-[#079447] hover:border-[#07C160] hover:bg-[#07C160]/5 hover:text-[#067a3b] dark:text-[#41d17c] dark:hover:text-[#5fe494]'
+                            className='min-h-14 min-w-0 justify-start gap-2 rounded-lg border-[#07C160]/50 px-3 py-2 text-left text-[#067a3b] hover:border-[#07C160] hover:bg-[#07C160]/5 hover:text-[#067a3b] dark:text-[#41d17c] dark:hover:text-[#5fe494]'
                           >
                             {paymentLoading === weChatLoadingKey ? (
                               <Loader2 className='h-4 w-4 animate-spin' />

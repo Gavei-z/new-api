@@ -56,7 +56,8 @@ import {
   getStripeTopupBounds,
   isIntegerTopupAmount,
   isStripePayment,
-  dispatchSelectedPayment,
+  createPaymentConfirmationSnapshot,
+  dispatchPaymentConfirmation,
   canTopUpPersonalWallet,
   validateStripeTopupAmount,
   getPaymentLoadingKey,
@@ -66,6 +67,7 @@ import type {
   PaymentMethod,
   PresetAmount,
   CreemProduct,
+  PaymentConfirmationSnapshot,
   WaffoPayMethod,
 } from './types'
 
@@ -86,9 +88,8 @@ export function Wallet(props: WalletProps) {
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null)
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethod>()
-  const [selectedWaffoMethodIndex, setSelectedWaffoMethodIndex] = useState<
-    number | null
-  >(null)
+  const [confirmationSnapshot, setConfirmationSnapshot] =
+    useState<PaymentConfirmationSnapshot | null>(null)
   const [paymentLoading, setPaymentLoading] = useState<string | null>(null)
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false)
   const [transferDialogOpen, setTransferDialogOpen] = useState(false)
@@ -114,6 +115,7 @@ export function Wallet(props: WalletProps) {
     calculating,
     processing,
     calculatePaymentAmount,
+    quotePaymentAmount,
     processPayment,
     setAmount: setPaymentAmount,
   } = usePayment()
@@ -238,8 +240,8 @@ export function Wallet(props: WalletProps) {
     }
 
     setSelectedPaymentMethod(method)
-    setSelectedWaffoMethodIndex(null)
     setPaymentLoading(getPaymentLoadingKey(method))
+    const quotedCreditAmount = topupAmount
 
     try {
       // Validate minimum topup
@@ -260,8 +262,24 @@ export function Wallet(props: WalletProps) {
         return
       }
 
-      // Calculate payment amount and show confirmation dialog
-      await calculatePaymentAmount(topupAmount, method.type)
+      // Quote the exact checkout variant before showing monetary details.
+      const quotedAmount = await quotePaymentAmount(
+        quotedCreditAmount,
+        method.type,
+        method.checkout_method
+      )
+      if (!Number.isFinite(quotedAmount) || quotedAmount <= 0) {
+        toast.error(t('Unable to verify this amount. Please try again.'))
+        return
+      }
+      setConfirmationSnapshot(
+        createPaymentConfirmationSnapshot(
+          quotedCreditAmount,
+          quotedAmount,
+          method,
+          null
+        )
+      )
       setConfirmDialogOpen(true)
     } finally {
       setPaymentLoading(null)
@@ -270,15 +288,16 @@ export function Wallet(props: WalletProps) {
 
   // Handle payment confirmation
   const handlePaymentConfirm = async () => {
-    if (!selectedPaymentMethod) return
-    if (!isIntegerTopupAmount(topupAmount)) {
+    const snapshot = confirmationSnapshot
+    if (!snapshot) return
+    if (!isIntegerTopupAmount(snapshot.creditAmount)) {
       toast.error(t('Amount must be a whole number'))
       return
     }
     if (
-      isStripePayment(selectedPaymentMethod.type) &&
+      isStripePayment(snapshot.paymentMethod.type) &&
       validateStripeTopupAmount(
-        topupAmount,
+        snapshot.creditAmount,
         getStripeTopupBounds(topupInfo)
       ) !== null
     ) {
@@ -286,19 +305,15 @@ export function Wallet(props: WalletProps) {
       return
     }
 
-    const success = await dispatchSelectedPayment(
-      selectedPaymentMethod,
-      topupAmount,
-      selectedWaffoMethodIndex,
-      {
-        regular: processPayment,
-        waffo: processWaffoPayment,
-        waffoPancake: processWaffoPancakePayment,
-      }
-    )
+    const success = await dispatchPaymentConfirmation(snapshot, {
+      regular: processPayment,
+      waffo: processWaffoPayment,
+      waffoPancake: processWaffoPancakePayment,
+    })
 
     if (success) {
       setConfirmDialogOpen(false)
+      setConfirmationSnapshot(null)
       await fetchUser()
     }
   }
@@ -351,16 +366,32 @@ export function Wallet(props: WalletProps) {
     }
 
     const loadingKey = `waffo-${index}`
-    setSelectedPaymentMethod({
+    const paymentMethod: PaymentMethod = {
       name: method.name,
       type: PAYMENT_TYPES.WAFFO,
       icon: method.icon,
-    })
-    setSelectedWaffoMethodIndex(index)
+    }
+    setSelectedPaymentMethod(paymentMethod)
     setPaymentLoading(loadingKey)
+    const quotedCreditAmount = topupAmount
 
     try {
-      await calculatePaymentAmount(topupAmount, PAYMENT_TYPES.WAFFO)
+      const quotedAmount = await quotePaymentAmount(
+        quotedCreditAmount,
+        PAYMENT_TYPES.WAFFO
+      )
+      if (!Number.isFinite(quotedAmount) || quotedAmount <= 0) {
+        toast.error(t('Unable to verify this amount. Please try again.'))
+        return
+      }
+      setConfirmationSnapshot(
+        createPaymentConfirmationSnapshot(
+          quotedCreditAmount,
+          quotedAmount,
+          paymentMethod,
+          index
+        )
+      )
       setConfirmDialogOpen(true)
     } finally {
       setPaymentLoading(null)
@@ -368,13 +399,6 @@ export function Wallet(props: WalletProps) {
   }
 
   // Get discount rate for current topup amount
-  const getDiscountRate = useCallback(() => {
-    if (selectedPaymentMethod && isStripePayment(selectedPaymentMethod.type)) {
-      return DEFAULT_DISCOUNT_RATE
-    }
-    return topupInfo?.discount?.[topupAmount] || DEFAULT_DISCOUNT_RATE
-  }, [selectedPaymentMethod, topupInfo, topupAmount])
-
   const handleSubscriptionAvailabilityChange = useCallback(
     (available: boolean) => {
       setShowSubscriptionPanel(available)
@@ -383,6 +407,22 @@ export function Wallet(props: WalletProps) {
   )
   const availableUserQuota =
     user?.total_available_quota ?? user?.total_quota ?? user?.quota
+  let confirmationDiscountRate = DEFAULT_DISCOUNT_RATE
+  if (
+    confirmationSnapshot &&
+    !isStripePayment(confirmationSnapshot.paymentMethod.type)
+  ) {
+    confirmationDiscountRate =
+      topupInfo?.discount?.[confirmationSnapshot.creditAmount] ||
+      DEFAULT_DISCOUNT_RATE
+  }
+
+  const handleConfirmDialogOpenChange = (open: boolean) => {
+    setConfirmDialogOpen(open)
+    if (!open) {
+      setConfirmationSnapshot(null)
+    }
+  }
 
   return (
     <>
@@ -465,21 +505,17 @@ export function Wallet(props: WalletProps) {
 
       <PaymentConfirmDialog
         open={confirmDialogOpen}
-        onOpenChange={setConfirmDialogOpen}
+        onOpenChange={handleConfirmDialogOpenChange}
         onConfirm={handlePaymentConfirm}
-        topupAmount={topupAmount}
-        paymentAmount={paymentAmount}
-        paymentMethod={selectedPaymentMethod}
-        calculating={calculating}
+        topupAmount={confirmationSnapshot?.creditAmount ?? 0}
+        paymentAmount={confirmationSnapshot?.quotedPaymentAmount ?? 0}
+        paymentMethod={confirmationSnapshot?.paymentMethod}
+        calculating={false}
         processing={processing || waffoProcessing || pancakeProcessing}
-        discountRate={getDiscountRate()}
+        discountRate={confirmationDiscountRate}
         usdExchangeRate={effectiveUsdExchangeRate}
-        currencyCode={
-          selectedPaymentMethod && isStripePayment(selectedPaymentMethod.type)
-            ? 'USD'
-            : undefined
-        }
-        stripeCheckoutMethod={selectedPaymentMethod?.checkout_method}
+        currencyCode={confirmationSnapshot?.currencyCode}
+        stripeCheckoutMethod={confirmationSnapshot?.checkoutMethod}
       />
 
       <TransferDialog

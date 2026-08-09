@@ -38,6 +38,7 @@ import {
   STRIPE_CHECKOUT_METHODS,
 } from '@/features/wallet/constants'
 import {
+  formatCnyAmount,
   formatUsdAmount,
   getPaymentIcon,
   getStripeTopupBounds,
@@ -80,10 +81,31 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
     }
   }, [initialAmount, props.open])
 
-  const amountQuery = useQuery({
-    queryKey: ['team-stripe-amount', amount],
-    queryFn: () => calculateCurrentTeamStripeAmount(amount),
+  const standardAmountQuery = useQuery({
+    queryKey: ['team-stripe-amount', amount, STRIPE_CHECKOUT_METHODS.STANDARD],
+    queryFn: () =>
+      calculateCurrentTeamStripeAmount(
+        amount,
+        STRIPE_CHECKOUT_METHODS.STANDARD
+      ),
     enabled: props.open && validation === null,
+    retry: false,
+  })
+  const weChatAmountQuery = useQuery({
+    queryKey: [
+      'team-stripe-amount',
+      amount,
+      STRIPE_CHECKOUT_METHODS.WECHAT_PAY,
+    ],
+    queryFn: () =>
+      calculateCurrentTeamStripeAmount(
+        amount,
+        STRIPE_CHECKOUT_METHODS.WECHAT_PAY
+      ),
+    enabled:
+      props.open &&
+      validation === null &&
+      props.topupInfo?.enable_stripe_wechat_pay === true,
     retry: false,
   })
 
@@ -116,16 +138,33 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
     validationMessage = t('Enter a valid USD amount.')
   }
 
-  const quotedAmount = Number(amountQuery.data)
-  const hasValidQuote =
-    amountQuery.isSuccess && Number.isFinite(quotedAmount) && quotedAmount > 0
-  const canSubmit =
+  const standardQuotedAmount = Number(standardAmountQuery.data)
+  const weChatQuotedAmount = Number(weChatAmountQuery.data)
+  const hasValidStandardQuote =
+    standardAmountQuery.isSuccess &&
+    !standardAmountQuery.isFetching &&
+    Number.isFinite(standardQuotedAmount) &&
+    standardQuotedAmount > 0
+  const hasValidWeChatQuote =
+    weChatAmountQuery.isSuccess &&
+    !weChatAmountQuery.isFetching &&
+    Number.isFinite(weChatQuotedAmount) &&
+    weChatQuotedAmount > 0
+  const canSubmitBase =
     validation === null &&
-    hasValidQuote &&
     !checkoutMutation.isPending &&
     props.topupInfo?.enable_stripe_topup === true
+  const canSubmitStandard = canSubmitBase && hasValidStandardQuote
+  const canSubmitWeChat =
+    canSubmitBase &&
+    props.topupInfo?.enable_stripe_wechat_pay === true &&
+    hasValidWeChatQuote
 
   const submit = (checkoutMethod: StripeCheckoutMethod) => {
+    const canSubmit =
+      checkoutMethod === STRIPE_CHECKOUT_METHODS.WECHAT_PAY
+        ? canSubmitWeChat
+        : canSubmitStandard
     if (!canSubmit) return
     checkoutMutation.mutate({ amount, checkoutMethod })
   }
@@ -196,36 +235,87 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
             </p>
           </div>
 
-          <div className='bg-muted/40 flex items-center justify-between rounded-lg border p-3'>
-            <div>
-              <p className='text-sm font-medium'>{t('USD credit amount')}</p>
-              <p className='text-muted-foreground text-xs'>
+          <div
+            data-slot='team-stripe-quote-summary'
+            className='grid gap-3 sm:grid-cols-2'
+          >
+            <div className='bg-muted/40 rounded-lg border p-3 text-left'>
+              <div className='flex items-center gap-2'>
+                <CreditCard className='text-muted-foreground size-4' />
+                <p className='text-sm font-medium'>{t('USD credit amount')}</p>
+              </div>
+              <p className='mt-2 text-lg font-semibold'>
+                {validation === null ? `${formatUsdAmount(amount)} USD` : '—'}
+              </p>
+              <p className='text-muted-foreground mt-1 text-xs'>
                 {t('The authenticated team is credited after payment.')}
               </p>
             </div>
-            <div className='flex items-center gap-2 text-right'>
-              {amountQuery.isFetching ? (
-                <Loader2 className='text-muted-foreground size-4 animate-spin' />
-              ) : (
-                <CreditCard className='text-muted-foreground size-4' />
+
+            <div className='space-y-2'>
+              <div
+                data-slot='team-standard-payment-quote'
+                aria-live='polite'
+                className='bg-muted/40 flex min-h-14 items-center justify-between rounded-lg border p-3'
+              >
+                <span className='text-muted-foreground text-sm'>
+                  {t('You Pay')}
+                </span>
+                <div className='flex items-center gap-2'>
+                  {standardAmountQuery.isFetching && (
+                    <Loader2 className='text-muted-foreground size-4 animate-spin' />
+                  )}
+                  <span className='font-semibold'>
+                    {hasValidStandardQuote
+                      ? `${formatUsdAmount(standardQuotedAmount)} USD`
+                      : '—'}
+                  </span>
+                </div>
+              </div>
+
+              {props.topupInfo?.enable_stripe_wechat_pay && (
+                <div
+                  data-slot='team-wechat-payment-quote'
+                  aria-live='polite'
+                  className='flex min-h-14 items-center justify-between rounded-lg border border-[#07C160]/30 bg-[#07C160]/5 p-3'
+                >
+                  <div className='flex items-center gap-2 text-[#067a3b] dark:text-[#41d17c]'>
+                    {getPaymentIcon(PAYMENT_TYPES.WECHAT, 'size-4')}
+                    <span className='text-sm font-medium'>
+                      {t('WeChat Pay')}
+                    </span>
+                  </div>
+                  <div className='flex items-center gap-2'>
+                    {weChatAmountQuery.isFetching && (
+                      <Loader2 className='text-muted-foreground size-4 animate-spin' />
+                    )}
+                    <span className='font-semibold'>
+                      {hasValidWeChatQuote
+                        ? `${formatCnyAmount(weChatQuotedAmount)} CNY`
+                        : '—'}
+                    </span>
+                  </div>
+                </div>
               )}
-              <span className='font-semibold'>
-                {hasValidQuote ? `${formatUsdAmount(quotedAmount)} USD` : '—'}
-              </span>
             </div>
           </div>
 
           {props.topupInfo?.enable_stripe_wechat_pay && (
             <p className='text-muted-foreground text-xs leading-5'>
               {t(
-                'For WeChat Pay, the final converted local-currency amount will be shown on the checkout page before payment.'
+                'WeChat checkout displays the final amount in CNY; your wallet is credited with the selected USD amount.'
               )}
             </p>
           )}
 
-          {amountQuery.isError && validation === null && (
+          {standardAmountQuery.isError && validation === null && (
             <p className='text-destructive text-sm' role='alert'>
               {t('Unable to verify this amount. Please try again.')}
+            </p>
+          )}
+          {weChatAmountQuery.isError && validation === null && (
+            <p className='text-destructive text-sm' role='alert'>
+              {t('Unable to verify the WeChat Pay amount. Please try again.')}
             </p>
           )}
         </div>
@@ -248,7 +338,7 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
           </Button>
           <Button
             type='button'
-            disabled={!canSubmit}
+            disabled={!canSubmitStandard}
             onClick={() => submit(STRIPE_CHECKOUT_METHODS.STANDARD)}
           >
             {checkoutMutation.isPending &&
@@ -262,9 +352,9 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
             <Button
               type='button'
               variant='outline'
-              disabled={!canSubmit}
+              disabled={!canSubmitWeChat}
               onClick={() => submit(STRIPE_CHECKOUT_METHODS.WECHAT_PAY)}
-              className='border-[#07C160]/50 text-[#079447] hover:border-[#07C160] hover:bg-[#07C160]/5 hover:text-[#067a3b] dark:text-[#41d17c] dark:hover:text-[#5fe494]'
+              className='border-[#07C160]/50 text-[#067a3b] hover:border-[#07C160] hover:bg-[#07C160]/5 hover:text-[#067a3b] dark:text-[#41d17c] dark:hover:text-[#5fe494]'
             >
               {checkoutMutation.isPending &&
               checkoutMutation.variables?.checkoutMethod ===

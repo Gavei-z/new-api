@@ -2,9 +2,9 @@
 Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -79,7 +79,15 @@ const topupInfo = {
   discount: {},
 } satisfies TopupInfo
 
-async function renderTeamTopupDialog(overrideTopupInfo: TopupInfo = topupInfo) {
+type QuoteFixture = {
+  standard?: string
+  weChat?: string
+}
+
+async function renderTeamTopupDialog(
+  overrideTopupInfo: TopupInfo = topupInfo,
+  quoteFixture: QuoteFixture = { standard: '2.00', weChat: '14.40' }
+) {
   const i18n = createInstance()
   await i18n.use(initReactI18next).init({
     lng: 'en',
@@ -93,7 +101,18 @@ async function renderTeamTopupDialog(overrideTopupInfo: TopupInfo = topupInfo) {
       mutations: { retry: false },
     },
   })
-  queryClient.setQueryData(['team-stripe-amount', 2], '2.00')
+  if (quoteFixture.standard !== undefined) {
+    queryClient.setQueryData(
+      ['team-stripe-amount', 2, 'standard'],
+      quoteFixture.standard
+    )
+  }
+  if (quoteFixture.weChat !== undefined) {
+    queryClient.setQueryData(
+      ['team-stripe-amount', 2, 'wechat_pay'],
+      quoteFixture.weChat
+    )
+  }
 
   const container = document.createElement('div')
   document.body.append(container)
@@ -140,9 +159,22 @@ describe('team Stripe top-up checkout actions', () => {
     assert.equal(weChatButton.disabled, false)
     assert.equal(dialog.textContent?.includes('Stripe'), false)
     assert.equal(dialog.textContent?.includes('USD credit amount'), true)
+    assert.equal(dialog.textContent?.includes('$2.00 USD'), true)
+    assert.equal(dialog.textContent?.includes('¥14.40 CNY'), true)
+    assert.equal(dialog.textContent?.includes('$14.40 USD'), false)
+    const standardQuote = dialog.querySelector<HTMLElement>(
+      '[data-slot="team-standard-payment-quote"]'
+    )
+    const weChatQuote = dialog.querySelector<HTMLElement>(
+      '[data-slot="team-wechat-payment-quote"]'
+    )
+    assert.equal(standardQuote?.getAttribute('aria-live'), 'polite')
+    assert.equal(weChatQuote?.getAttribute('aria-live'), 'polite')
+    assert.equal(weChatButton.classList.contains('text-[#067a3b]'), true)
+    assert.equal(weChatButton.classList.contains('text-[#079447]'), false)
     assert.equal(
       dialog.textContent?.includes(
-        'For WeChat Pay, the final converted local-currency amount will be shown on the checkout page before payment.'
+        'WeChat checkout displays the final amount in CNY; your wallet is credited with the selected USD amount.'
       ),
       true
     )
@@ -168,6 +200,54 @@ describe('team Stripe top-up checkout actions', () => {
     assert.ok(footer)
     assert.equal(dialog.textContent?.includes('WeChat Pay'), false)
     assert.equal(footer.classList.contains('sm:grid-cols-[auto_1fr]'), true)
+
+    await act(async () => rendered.root.unmount())
+    rendered.queryClient.clear()
+    rendered.container.remove()
+  })
+
+  test('disables only the standard action when its quote is invalid', async () => {
+    const rendered = await renderTeamTopupDialog(topupInfo, {
+      standard: '0',
+      weChat: '14.40',
+    })
+    const dialog = document.body.querySelector<HTMLElement>(
+      '[data-slot="dialog-content"]'
+    )
+    const buttons = [
+      ...(dialog?.querySelectorAll<HTMLButtonElement>('button') ?? []),
+    ]
+    const payButton = buttons.find((button) => button.textContent === 'Pay')
+    const weChatButton = buttons.find((button) =>
+      button.textContent?.includes('WeChat Pay')
+    )
+
+    assert.equal(payButton?.disabled, true)
+    assert.equal(weChatButton?.disabled, false)
+
+    await act(async () => rendered.root.unmount())
+    rendered.queryClient.clear()
+    rendered.container.remove()
+  })
+
+  test('disables only the WeChat action when its CNY quote is invalid', async () => {
+    const rendered = await renderTeamTopupDialog(topupInfo, {
+      standard: '2.00',
+      weChat: '0',
+    })
+    const dialog = document.body.querySelector<HTMLElement>(
+      '[data-slot="dialog-content"]'
+    )
+    const buttons = [
+      ...(dialog?.querySelectorAll<HTMLButtonElement>('button') ?? []),
+    ]
+    const payButton = buttons.find((button) => button.textContent === 'Pay')
+    const weChatButton = buttons.find((button) =>
+      button.textContent?.includes('WeChat Pay')
+    )
+
+    assert.equal(payButton?.disabled, false)
+    assert.equal(weChatButton?.disabled, true)
 
     await act(async () => rendered.root.unmount())
     rendered.queryClient.clear()

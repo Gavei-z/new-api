@@ -156,6 +156,8 @@ describe('wallet recharge form layout', () => {
     assert.ok(weChatButton)
     assert.equal(payButton.textContent?.trim(), 'Pay')
     assert.equal(weChatButton.textContent?.trim(), 'WeChat Pay')
+    assert.equal(weChatButton.classList.contains('text-[#067a3b]'), true)
+    assert.equal(weChatButton.classList.contains('text-[#079447]'), false)
     assert.equal(
       rendered.container.textContent?.includes('Payment Method'),
       false
@@ -177,7 +179,7 @@ describe('wallet recharge form layout', () => {
   })
 
   test('keeps custom amount and payment total compact and top-aligned', async () => {
-    const rendered = await renderRechargeForm()
+    const rendered = await renderRechargeForm({ paymentAmount: 14.4 })
     const amountLayout = rendered.container.querySelector<HTMLElement>(
       '[data-slot="wallet-amount-entry"]'
     )
@@ -203,6 +205,9 @@ describe('wallet recharge form layout', () => {
     assert.equal(total.classList.contains('h-10'), true)
     assert.equal(total.classList.contains('justify-start'), true)
     assert.equal(total.classList.contains('justify-end'), false)
+    assert.equal(total.getAttribute('aria-live'), 'polite')
+    assert.equal(total.textContent?.includes('$2.00 USD'), true)
+    assert.equal(total.textContent?.includes('$14.40 USD'), false)
 
     await unmountRechargeForm(rendered)
   })

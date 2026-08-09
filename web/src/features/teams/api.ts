@@ -16,9 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { StripeCheckoutMethod } from '@/features/wallet/types'
 import { api } from '@/lib/api'
 
-import { createTeamStripeTopupPayload } from './lib'
+import {
+  createTeamStripeAmountPayload,
+  createTeamStripeTopupPayload,
+} from './lib'
 import type {
   CreateTeamInput,
   CreateTeamMemberInput,
@@ -106,12 +110,17 @@ export async function fundCurrentTeam(
 }
 
 export async function calculateCurrentTeamStripeAmount(
-  amount: number
+  amount: number,
+  checkoutMethod: StripeCheckoutMethod = 'standard'
 ): Promise<string> {
   return unwrap(
-    await api.post('/api/team/stripe/amount', { amount }, {
-      skipBusinessError: true,
-    } as Record<string, unknown>)
+    await api.post(
+      '/api/team/stripe/amount',
+      createTeamStripeAmountPayload(amount, checkoutMethod),
+      {
+        skipBusinessError: true,
+      } as Record<string, unknown>
+    )
   )
 }
 

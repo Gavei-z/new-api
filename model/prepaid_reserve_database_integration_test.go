@@ -94,6 +94,9 @@ func TestPrepaidReserveRealDatabases(t *testing.T) {
 			assert.True(t, db.Migrator().HasColumn(&PrepaidReserve{}, "quota"))
 			assert.True(t, db.Migrator().HasColumn(&PrepaidReserveTransaction{}, "requested_quota"))
 			assert.True(t, db.Migrator().HasColumn(&PrepaidReserveTransaction{}, "reserve_balance_after"))
+			assert.True(t, db.Migrator().HasColumn(&TopUp{}, "stripe_checkout_method"))
+			assert.True(t, db.Migrator().HasColumn(&TopUp{}, "stripe_price_id"))
+			assert.True(t, db.Migrator().HasColumn(&TopUp{}, "expected_unit_amount_minor"))
 			assert.True(t, db.Migrator().HasIndex(&PrepaidReserve{}, "idx_prepaid_reserve_target"))
 			assertBigintColumn := func(modelValue any, columnName string) {
 				columnTypes, columnErr := db.Migrator().ColumnTypes(modelValue)

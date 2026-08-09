@@ -35,6 +35,7 @@ import { formatLocalCurrencyAmount } from '@/lib/currency'
 import { DEFAULT_DISCOUNT_RATE, STRIPE_CHECKOUT_METHODS } from '../../constants'
 import {
   formatCurrency,
+  formatCnyAmount,
   formatUsdAmount,
   getPaymentIcon,
   isStripePayment,
@@ -47,12 +48,12 @@ interface PaymentConfirmDialogProps {
   onConfirm: () => void
   topupAmount: number
   paymentAmount: number
-  paymentMethod: PaymentMethod | undefined
+  paymentMethod: Readonly<PaymentMethod> | undefined
   calculating: boolean
   processing: boolean
   discountRate?: number
   usdExchangeRate?: number
-  currencyCode?: 'USD'
+  currencyCode?: 'USD' | 'CNY'
   stripeCheckoutMethod?: StripeCheckoutMethod
 }
 
@@ -75,8 +76,33 @@ export function PaymentConfirmDialog({
   const originalAmount = hasDiscount ? paymentAmount / discountRate : 0
   const discountAmount = hasDiscount ? originalAmount - paymentAmount : 0
   const showPaymentProvider = !isStripePayment(paymentMethod?.type ?? '')
+  const isStripeCheckout = isStripePayment(paymentMethod?.type ?? '')
   const isWeChatPay =
     stripeCheckoutMethod === STRIPE_CHECKOUT_METHODS.WECHAT_PAY
+  let creditAmountText = formatLocalCurrencyAmount(
+    topupAmount * usdExchangeRate,
+    {
+      digitsLarge: 2,
+      digitsSmall: 2,
+      abbreviate: false,
+    }
+  )
+  if (isStripeCheckout) {
+    creditAmountText = `${formatUsdAmount(topupAmount)} USD`
+  }
+
+  let paymentAmountText = formatCurrency(paymentAmount)
+  let originalAmountText = formatCurrency(originalAmount)
+  let discountAmountText = formatCurrency(discountAmount)
+  if (currencyCode === 'USD') {
+    paymentAmountText = `${formatUsdAmount(paymentAmount)} USD`
+    originalAmountText = `${formatUsdAmount(originalAmount)} USD`
+    discountAmountText = `${formatUsdAmount(discountAmount)} USD`
+  } else if (currencyCode === 'CNY') {
+    paymentAmountText = `${formatCnyAmount(paymentAmount)} CNY`
+    originalAmountText = `${formatCnyAmount(originalAmount)} CNY`
+    discountAmountText = `${formatCnyAmount(discountAmount)} CNY`
+  }
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -93,37 +119,29 @@ export function PaymentConfirmDialog({
         <div className='space-y-3 py-3 sm:space-y-4 sm:py-4'>
           <div className='flex items-center justify-between'>
             <span className='text-muted-foreground text-sm'>
-              {t('Topup Amount')}
+              {isStripeCheckout ? t('USD credit amount') : t('Topup Amount')}
             </span>
-            <span className='text-lg font-semibold'>
-              {currencyCode === 'USD'
-                ? `${formatUsdAmount(topupAmount)} USD`
-                : formatLocalCurrencyAmount(topupAmount * usdExchangeRate, {
-                    digitsLarge: 2,
-                    digitsSmall: 2,
-                    abbreviate: false,
-                  })}
-            </span>
+            <span className='text-lg font-semibold'>{creditAmountText}</span>
           </div>
 
-          <div className='flex items-center justify-between'>
+          <div
+            data-slot='payment-confirm-quote'
+            aria-live='polite'
+            className='flex items-center justify-between'
+          >
             <span className='text-muted-foreground text-sm'>
-              {isWeChatPay ? t('USD credit amount') : t('You Pay')}
+              {t('You Pay')}
             </span>
             {calculating ? (
               <Skeleton className='h-6 w-24' />
             ) : (
               <div className='flex items-baseline gap-2'>
                 <span className='text-2xl font-semibold'>
-                  {currencyCode === 'USD'
-                    ? `${formatUsdAmount(paymentAmount)} USD`
-                    : formatCurrency(paymentAmount)}
+                  {paymentAmountText}
                 </span>
                 {hasDiscount && (
                   <span className='text-muted-foreground text-sm line-through'>
-                    {currencyCode === 'USD'
-                      ? formatUsdAmount(originalAmount)
-                      : formatCurrency(originalAmount)}
+                    {originalAmountText}
                   </span>
                 )}
               </div>
@@ -135,9 +153,7 @@ export function PaymentConfirmDialog({
               <div className='flex items-center justify-between text-sm'>
                 <span className='text-muted-foreground'>{t('You save')}</span>
                 <span className='font-semibold text-green-600'>
-                  {currencyCode === 'USD'
-                    ? formatUsdAmount(discountAmount)
-                    : formatCurrency(discountAmount)}
+                  {discountAmountText}
                 </span>
               </div>
             </div>
@@ -168,14 +184,14 @@ export function PaymentConfirmDialog({
                 <span className='text-muted-foreground text-sm'>
                   {t('Payment Method')}
                 </span>
-                <div className='flex items-center gap-2 font-medium text-[#079447] dark:text-[#41d17c]'>
+                <div className='flex items-center gap-2 font-medium text-[#067a3b] dark:text-[#41d17c]'>
                   {getPaymentIcon('wxpay', 'h-4 w-4')}
                   <span>{t('WeChat Pay')}</span>
                 </div>
               </div>
               <p className='text-muted-foreground mt-2 text-xs leading-5'>
                 {t(
-                  'The final converted local-currency amount will be shown on the checkout page before payment.'
+                  'WeChat checkout displays the final amount in CNY; your wallet is credited with the selected USD amount.'
                 )}
               </p>
             </div>

@@ -21,7 +21,7 @@ import type { TFunction } from 'i18next'
 import { PAYMENT_TYPES } from '@/features/wallet/constants'
 import type { StripeCheckoutMethod } from '@/features/wallet/types'
 
-import type { TeamStripeTopupPayload } from './types'
+import type { TeamStripeAmountPayload, TeamStripeTopupPayload } from './types'
 
 export function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
@@ -80,6 +80,16 @@ export function createTeamStripeTopupPayload(
   return {
     amount,
     payment_method: PAYMENT_TYPES.STRIPE,
+    checkout_method: checkoutMethod,
+  }
+}
+
+export function createTeamStripeAmountPayload(
+  amount: number,
+  checkoutMethod: StripeCheckoutMethod
+): TeamStripeAmountPayload {
+  return {
+    amount,
     checkout_method: checkoutMethod,
   }
 }

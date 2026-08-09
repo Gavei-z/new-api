@@ -21,7 +21,9 @@ import { describe, test } from 'node:test'
 
 import { PAYMENT_TYPES } from '../constants'
 import {
+  createPaymentConfirmationSnapshot,
   dispatchSelectedPayment,
+  dispatchPaymentConfirmation,
   isStripePayment,
   isWaffoPayment,
   isWaffoPancakePayment,
@@ -77,6 +79,43 @@ describe('Stripe checkout variants', () => {
 
     assert.equal(success, true)
     assert.equal(checkoutMethod, 'wechat_pay')
+  })
+
+  test('keeps display and submission bound to the clicked confirmation snapshot', async () => {
+    const snapshot = createPaymentConfirmationSnapshot(
+      2,
+      14.4,
+      {
+        name: 'WeChat Pay',
+        type: PAYMENT_TYPES.STRIPE,
+        checkout_method: 'wechat_pay',
+      },
+      null
+    )
+    const formAmountAfterClick = 5
+    let submittedAmount = 0
+    let submittedCheckoutMethod: string | undefined
+
+    const success = await dispatchPaymentConfirmation(snapshot, {
+      regular: async (amount, _type, checkoutMethod) => {
+        submittedAmount = amount
+        submittedCheckoutMethod = checkoutMethod
+        return true
+      },
+      waffo: async () => false,
+      waffoPancake: async () => false,
+    })
+
+    assert.equal(formAmountAfterClick, 5)
+    assert.equal(snapshot.creditAmount, 2)
+    assert.equal(snapshot.quotedPaymentAmount, 14.4)
+    assert.equal(snapshot.currencyCode, 'CNY')
+    assert.equal(snapshot.checkoutMethod, 'wechat_pay')
+    assert.equal(submittedAmount, 2)
+    assert.equal(submittedCheckoutMethod, 'wechat_pay')
+    assert.equal(success, true)
+    assert.equal(Object.isFrozen(snapshot), true)
+    assert.equal(Object.isFrozen(snapshot.paymentMethod), true)
   })
 })
 

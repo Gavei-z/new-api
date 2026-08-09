@@ -94,3 +94,13 @@ export function formatUsdAmount(amount: number): string {
     maximumFractionDigits: 2,
   }).format(amount)
 }
+
+export function formatCnyAmount(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'CNY',
+    currencyDisplay: 'narrowSymbol',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount)
+}
