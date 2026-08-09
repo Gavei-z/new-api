@@ -30,6 +30,7 @@ import type {
   TeamQuotaTransaction,
   TeamSummary,
   TeamStripeCheckout,
+  TeamStripeCheckoutRequest,
   TeamUsage,
 } from './types'
 
@@ -108,23 +109,19 @@ export async function calculateCurrentTeamStripeAmount(
   amount: number
 ): Promise<string> {
   return unwrap(
-    await api.post(
-      '/api/team/stripe/amount',
-      createTeamStripeTopupPayload(amount),
-      {
-        skipBusinessError: true,
-      } as Record<string, unknown>
-    )
+    await api.post('/api/team/stripe/amount', { amount }, {
+      skipBusinessError: true,
+    } as Record<string, unknown>)
   )
 }
 
 export async function requestCurrentTeamStripePayment(
-  amount: number
+  request: TeamStripeCheckoutRequest
 ): Promise<TeamStripeCheckout> {
   return unwrap(
     await api.post(
       '/api/team/stripe/pay',
-      createTeamStripeTopupPayload(amount),
+      createTeamStripeTopupPayload(request.amount, request.checkoutMethod),
       {
         skipBusinessError: true,
       } as Record<string, unknown>

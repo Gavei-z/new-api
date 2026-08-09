@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Card, CardContent } from '@/components/ui/card'
+import { PAYMENT_RETURN_REFRESH_DELAYS_MS } from '@/features/wallet/constants'
 import { useTopupInfo } from '@/features/wallet/hooks'
 
 import { getCurrentTeam } from '../api'
@@ -45,17 +46,30 @@ export function TeamManagerConsole(props: TeamManagerConsoleProps) {
     if (!props.initialStripeStatus || handledStripeStatusRef.current) return
     handledStripeStatusRef.current = true
 
+    const refreshTimers: number[] = []
+
     if (props.initialStripeStatus === 'success') {
       toast.success(
         t(
           'Returned from Stripe. We are confirming the team payment and refreshing the shared balance.'
         )
       )
-      void refetchTeam()
+      PAYMENT_RETURN_REFRESH_DELAYS_MS.forEach((delay) => {
+        refreshTimers.push(
+          window.setTimeout(() => {
+            void refetchTeam()
+          }, delay)
+        )
+      })
     } else {
       toast.info(t('Team Stripe top-up was cancelled. No charge was made.'))
     }
     window.history.replaceState({}, '', window.location.pathname)
+
+    return () => {
+      refreshTimers.forEach((timer) => window.clearTimeout(timer))
+      handledStripeStatusRef.current = false
+    }
   }, [props.initialStripeStatus, refetchTeam, t])
 
   if (teamQuery.isLoading) {

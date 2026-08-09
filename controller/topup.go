@@ -104,6 +104,7 @@ func GetTopUpInfo(c *gin.Context) {
 	data := gin.H{
 		"enable_online_topup":              enableEpay,
 		"enable_stripe_topup":              isStripeTopUpEnabled(),
+		"enable_stripe_wechat_pay":         isStripeWeChatPayEnabled(),
 		"enable_creem_topup":               isCreemTopUpEnabled(),
 		"enable_waffo_topup":               enableWaffo,
 		"enable_waffo_pancake_topup":       enableWaffoPancake,

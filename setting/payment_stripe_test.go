@@ -49,3 +49,14 @@ func TestStripeCredentialGettersFallBackToDatabaseOptions(t *testing.T) {
 	assert.Equal(t, "database-webhook-secret", GetStripeWebhookSecret())
 	assert.Equal(t, "database-price", GetStripePriceId())
 }
+
+func TestStripeWeChatPayRequiresExplicitEnvironmentEnablement(t *testing.T) {
+	t.Setenv("STRIPE_WECHAT_PAY_ENABLED", "")
+	assert.False(t, IsStripeWeChatPayEnabled())
+
+	t.Setenv("STRIPE_WECHAT_PAY_ENABLED", "true")
+	assert.True(t, IsStripeWeChatPayEnabled())
+
+	t.Setenv("STRIPE_WECHAT_PAY_ENABLED", "invalid")
+	assert.False(t, IsStripeWeChatPayEnabled())
+}

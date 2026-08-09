@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { StripeCheckoutMethod } from '@/features/wallet/types'
+
 export type Team = {
   id: number
   name: string
@@ -132,6 +134,13 @@ export type EnterpriseInquiryInput = {
 
 export type TeamStripeTopupPayload = {
   amount: number
+  payment_method: 'stripe'
+  checkout_method: StripeCheckoutMethod
+}
+
+export type TeamStripeCheckoutRequest = {
+  amount: number
+  checkoutMethod: StripeCheckoutMethod
 }
 
 export type TeamStripeCheckout = {

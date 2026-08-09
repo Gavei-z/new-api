@@ -21,8 +21,15 @@ import {
   DEFAULT_PRESET_MULTIPLIERS,
   DEFAULT_PAYMENT_TYPE,
   DEFAULT_MIN_TOPUP,
+  STRIPE_CHECKOUT_METHODS,
 } from '../constants'
-import type { PaymentMethod, PresetAmount, TopupInfo } from '../types'
+import type {
+  PaymentMethod,
+  PresetAmount,
+  StripeCheckoutMethod,
+  StripePaymentRequest,
+  TopupInfo,
+} from '../types'
 
 // ============================================================================
 // Payment Processing Functions
@@ -75,6 +82,30 @@ export function isStripePayment(paymentType: string): boolean {
   return paymentType === PAYMENT_TYPES.STRIPE
 }
 
+export function getStripeCheckoutMethod(
+  paymentMethod: PaymentMethod
+): StripeCheckoutMethod {
+  return paymentMethod.checkout_method ?? STRIPE_CHECKOUT_METHODS.STANDARD
+}
+
+export function getPaymentLoadingKey(paymentMethod: PaymentMethod): string {
+  if (!isStripePayment(paymentMethod.type)) {
+    return paymentMethod.type
+  }
+  return `${PAYMENT_TYPES.STRIPE}:${getStripeCheckoutMethod(paymentMethod)}`
+}
+
+export function createStripeTopupPayload(
+  amount: number,
+  checkoutMethod: StripeCheckoutMethod
+): StripePaymentRequest {
+  return {
+    amount,
+    payment_method: PAYMENT_TYPES.STRIPE,
+    checkout_method: checkoutMethod,
+  }
+}
+
 /**
  * Check if payment method is Waffo
  */
@@ -102,7 +133,11 @@ export function isIntegerTopupAmount(amount: number): boolean {
 }
 
 export interface PaymentProcessors {
-  regular: (topupAmount: number, paymentType: string) => Promise<boolean>
+  regular: (
+    topupAmount: number,
+    paymentType: string,
+    stripeCheckoutMethod?: StripeCheckoutMethod
+  ) => Promise<boolean>
   waffo: (topupAmount: number, payMethodIndex: number) => Promise<boolean>
   waffoPancake: (topupAmount: number) => Promise<boolean>
 }
@@ -128,7 +163,13 @@ export async function dispatchSelectedPayment(
     return processors.waffoPancake(topupAmount)
   }
 
-  return processors.regular(topupAmount, paymentMethod.type)
+  return processors.regular(
+    topupAmount,
+    paymentMethod.type,
+    isStripePayment(paymentMethod.type)
+      ? getStripeCheckoutMethod(paymentMethod)
+      : undefined
+  )
 }
 
 /**

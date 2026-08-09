@@ -2,6 +2,7 @@ package setting
 
 import (
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -32,4 +33,12 @@ func GetStripeWebhookSecret() string {
 
 func GetStripePriceId() string {
 	return stripeEnvironmentValue("STRIPE_PRICE_ID", StripePriceId)
+}
+
+// IsStripeWeChatPayEnabled is an explicit deployment-level kill switch for
+// the WeChat-only Checkout variant. Stripe credentials alone do not prove
+// that the connected account has an active WeChat Pay capability.
+func IsStripeWeChatPayEnabled() bool {
+	enabled, err := strconv.ParseBool(strings.TrimSpace(os.Getenv("STRIPE_WECHAT_PAY_ENABLED")))
+	return err == nil && enabled
 }

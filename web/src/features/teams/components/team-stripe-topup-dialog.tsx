@@ -34,12 +34,17 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
+  PAYMENT_TYPES,
+  STRIPE_CHECKOUT_METHODS,
+} from '@/features/wallet/constants'
+import {
   formatUsdAmount,
+  getPaymentIcon,
   getStripeTopupBounds,
   getStripeTopupPresets,
   validateStripeTopupAmount,
 } from '@/features/wallet/lib'
-import type { TopupInfo } from '@/features/wallet/types'
+import type { StripeCheckoutMethod, TopupInfo } from '@/features/wallet/types'
 import { cn } from '@/lib/utils'
 
 import {
@@ -120,9 +125,9 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
     !checkoutMutation.isPending &&
     props.topupInfo?.enable_stripe_topup === true
 
-  const submit = () => {
+  const submit = (checkoutMethod: StripeCheckoutMethod) => {
     if (!canSubmit) return
-    checkoutMutation.mutate(amount)
+    checkoutMutation.mutate({ amount, checkoutMethod })
   }
 
   return (
@@ -132,7 +137,7 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
           <DialogTitle>{t('Add Team Funds')}</DialogTitle>
           <DialogDescription>
             {t(
-              'Pay with Stripe and add USD credits directly to the shared team balance.'
+              'Choose a USD amount. Credits are added to the shared team balance after payment.'
             )}
           </DialogDescription>
         </DialogHeader>
@@ -193,7 +198,7 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
 
           <div className='bg-muted/40 flex items-center justify-between rounded-lg border p-3'>
             <div>
-              <p className='text-sm font-medium'>{t('Stripe Checkout')}</p>
+              <p className='text-sm font-medium'>{t('USD credit amount')}</p>
               <p className='text-muted-foreground text-xs'>
                 {t('The authenticated team is credited after payment.')}
               </p>
@@ -210,6 +215,14 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
             </div>
           </div>
 
+          {props.topupInfo?.enable_stripe_wechat_pay && (
+            <p className='text-muted-foreground text-xs leading-5'>
+              {t(
+                'For WeChat Pay, the final converted local-currency amount will be shown on the checkout page before payment.'
+              )}
+            </p>
+          )}
+
           {amountQuery.isError && validation === null && (
             <p className='text-destructive text-sm' role='alert'>
               {t('Unable to verify this amount. Please try again.')}
@@ -217,7 +230,14 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter
+          className={cn(
+            'grid gap-2 sm:space-x-0',
+            props.topupInfo?.enable_stripe_wechat_pay
+              ? 'sm:grid-cols-[auto_1fr_1fr]'
+              : 'sm:grid-cols-[auto_1fr]'
+          )}
+        >
           <Button
             type='button'
             variant='outline'
@@ -226,12 +246,36 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
           >
             {t('Cancel')}
           </Button>
-          <Button type='button' disabled={!canSubmit} onClick={submit}>
-            {checkoutMutation.isPending && (
-              <Loader2 className='size-4 animate-spin' />
-            )}
-            {t('Continue to Stripe')}
+          <Button
+            type='button'
+            disabled={!canSubmit}
+            onClick={() => submit(STRIPE_CHECKOUT_METHODS.STANDARD)}
+          >
+            {checkoutMutation.isPending &&
+              checkoutMutation.variables?.checkoutMethod ===
+                STRIPE_CHECKOUT_METHODS.STANDARD && (
+                <Loader2 className='size-4 animate-spin' />
+              )}
+            {t('Pay')}
           </Button>
+          {props.topupInfo?.enable_stripe_wechat_pay && (
+            <Button
+              type='button'
+              variant='outline'
+              disabled={!canSubmit}
+              onClick={() => submit(STRIPE_CHECKOUT_METHODS.WECHAT_PAY)}
+              className='border-[#07C160]/50 text-[#079447] hover:border-[#07C160] hover:bg-[#07C160]/5 hover:text-[#067a3b] dark:text-[#41d17c] dark:hover:text-[#5fe494]'
+            >
+              {checkoutMutation.isPending &&
+              checkoutMutation.variables?.checkoutMethod ===
+                STRIPE_CHECKOUT_METHODS.WECHAT_PAY ? (
+                <Loader2 className='size-4 animate-spin' />
+              ) : (
+                getPaymentIcon(PAYMENT_TYPES.WECHAT, 'size-4')
+              )}
+              {t('WeChat Pay')}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

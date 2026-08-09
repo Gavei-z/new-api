@@ -29,6 +29,7 @@ import type {
   AmountResponse,
   PaymentResponse,
   StripePaymentResponse,
+  StripePaymentRequest,
   AffiliateCodeResponse,
   AffiliateTransferResponse,
   BillingHistoryResponse,
@@ -125,7 +126,7 @@ export async function requestPayment(
  * Request Stripe payment
  */
 export async function requestStripePayment(
-  request: PaymentRequest
+  request: StripePaymentRequest
 ): Promise<StripePaymentResponse> {
   const res = await api.post('/api/user/stripe/pay', request, {
     skipBusinessError: true,

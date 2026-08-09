@@ -35,8 +35,13 @@ import {
   isWaffoPayment,
   isWaffoPancakePayment,
   submitPaymentForm,
+  createStripeTopupPayload,
 } from '../lib'
-import type { AmountRequest, AmountResponse } from '../types'
+import type {
+  AmountRequest,
+  AmountResponse,
+  StripeCheckoutMethod,
+} from '../types'
 
 // ============================================================================
 // Payment Hook
@@ -112,7 +117,11 @@ export function usePayment() {
 
   // Process payment
   const processPayment = useCallback(
-    async (topupAmount: number, paymentType: string) => {
+    async (
+      topupAmount: number,
+      paymentType: string,
+      stripeCheckoutMethod?: StripeCheckoutMethod
+    ) => {
       try {
         setProcessing(true)
 
@@ -124,10 +133,12 @@ export function usePayment() {
         const isStripe = isStripePayment(paymentType)
 
         const response = isStripe
-          ? await requestStripePayment({
-              amount: topupAmount,
-              payment_method: 'stripe',
-            })
+          ? await requestStripePayment(
+              createStripeTopupPayload(
+                topupAmount,
+                stripeCheckoutMethod ?? 'standard'
+              )
+            )
           : await requestPayment({
               amount: topupAmount,
               payment_method: paymentType,

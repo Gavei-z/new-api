@@ -18,6 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { TFunction } from 'i18next'
 
+import { PAYMENT_TYPES } from '@/features/wallet/constants'
+import type { StripeCheckoutMethod } from '@/features/wallet/types'
+
 import type { TeamStripeTopupPayload } from './types'
 
 export function getErrorMessage(error: unknown, fallback: string): string {
@@ -68,10 +71,15 @@ export function transactionTypeLabel(t: TFunction, type: string): string {
 
 /**
  * The authenticated team is resolved on the server. Keeping the request body
- * amount-only prevents the browser from selecting or overriding a team target.
+ * Neither checkout variant lets the browser select or override a team target.
  */
 export function createTeamStripeTopupPayload(
-  amount: number
+  amount: number,
+  checkoutMethod: StripeCheckoutMethod
 ): TeamStripeTopupPayload {
-  return { amount }
+  return {
+    amount,
+    payment_method: PAYMENT_TYPES.STRIPE,
+    checkout_method: checkoutMethod,
+  }
 }

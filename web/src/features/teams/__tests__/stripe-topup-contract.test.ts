@@ -22,11 +22,23 @@ import { describe, test } from 'node:test'
 import { createTeamStripeTopupPayload } from '../lib'
 
 describe('team Stripe top-up target contract', () => {
-  test('sends only the amount because the server derives the authenticated team', () => {
-    const payload = createTeamStripeTopupPayload(50)
+  test('sends the allowlisted checkout method while the server derives the team', () => {
+    const payload = createTeamStripeTopupPayload(50, 'wechat_pay')
 
-    assert.deepEqual(payload, { amount: 50 })
+    assert.deepEqual(payload, {
+      amount: 50,
+      payment_method: 'stripe',
+      checkout_method: 'wechat_pay',
+    })
     assert.equal('team_id' in payload, false)
     assert.equal('user_id' in payload, false)
+  })
+
+  test('keeps the regular team checkout explicit and backward-safe', () => {
+    assert.deepEqual(createTeamStripeTopupPayload(2, 'standard'), {
+      amount: 2,
+      payment_method: 'stripe',
+      checkout_method: 'standard',
+    })
   })
 })

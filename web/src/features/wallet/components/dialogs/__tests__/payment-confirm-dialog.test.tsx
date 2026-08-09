@@ -89,6 +89,7 @@ async function renderDialog(paymentMethod: PaymentMethod) {
           calculating={false}
           processing={false}
           currencyCode='USD'
+          stripeCheckoutMethod={paymentMethod.checkout_method}
         />
       </I18nextProvider>
     )
@@ -138,5 +139,30 @@ describe('payment confirmation provider details', () => {
     await unmountDialog(rendered)
     assert.equal(hasPaymentMethod, true)
     assert.equal(hasProvider, true)
+  })
+
+  test('explains local-currency conversion for WeChat Pay', async () => {
+    const rendered = await renderDialog({
+      name: 'WeChat Pay',
+      type: 'stripe',
+      checkout_method: 'wechat_pay',
+    })
+    const dialog = document.body.querySelector<HTMLElement>(
+      '[data-slot="alert-dialog-content"]'
+    )
+
+    assert.ok(dialog)
+    assert.equal(dialog.textContent?.includes('WeChat Pay'), true)
+    assert.equal(
+      dialog.textContent?.includes(
+        'The final converted local-currency amount will be shown on the checkout page before payment.'
+      ),
+      true
+    )
+    assert.equal(dialog.textContent?.includes('Stripe'), false)
+    assert.equal(dialog.textContent?.includes('USD credit amount'), true)
+    assert.equal(dialog.textContent?.includes('You Pay'), false)
+
+    await unmountDialog(rendered)
   })
 })

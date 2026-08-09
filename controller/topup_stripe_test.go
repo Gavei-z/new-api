@@ -83,6 +83,7 @@ func TestCreateStripeCheckoutUsesOneDollarPriceQuantityAndIdempotency(t *testing
 		500,
 		"https://unirouters.cc/wallet?stripe=success",
 		"https://unirouters.cc/wallet?stripe=cancel",
+		stripeCheckoutMethodStandard,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -99,8 +100,166 @@ func TestCreateStripeCheckoutUsesOneDollarPriceQuantityAndIdempotency(t *testing
 	require.NotNil(t, captured.AllowPromotionCodes)
 	assert.False(t, *captured.AllowPromotionCodes)
 	assert.Equal(t, "ref_order", captured.Metadata["topup_reference"])
+	assert.Equal(t, stripeCheckoutMethodStandard, captured.Metadata["checkout_method"])
 	require.NotNil(t, captured.PaymentIntentData)
 	assert.Equal(t, "ref_order", captured.PaymentIntentData.Metadata["topup_reference"])
+	assert.Equal(t, stripeCheckoutMethodStandard, captured.PaymentIntentData.Metadata["checkout_method"])
+	assert.Nil(t, captured.PaymentMethodTypes)
+	assert.Nil(t, captured.PaymentMethodOptions)
+	assert.Nil(t, captured.AdaptivePricing)
+}
+
+func TestCreateStripeCheckoutUsesWeChatPayWithAdaptivePricingOnlyWhenRequested(t *testing.T) {
+	t.Setenv("STRIPE_API_SECRET", "")
+	t.Setenv("STRIPE_PRICE_ID", "")
+	originalSecret := setting.StripeApiSecret
+	originalPrice := setting.StripePriceId
+	originalNew := stripeCheckoutSessionNew
+	t.Cleanup(func() {
+		setting.StripeApiSecret = originalSecret
+		setting.StripePriceId = originalPrice
+		stripeCheckoutSessionNew = originalNew
+	})
+	setting.StripeApiSecret = "rk_test_wechat"
+	setting.StripePriceId = "price_one_usd"
+
+	var captured *stripe.CheckoutSessionParams
+	stripeCheckoutSessionNew = func(params *stripe.CheckoutSessionParams) (*stripe.CheckoutSession, error) {
+		captured = params
+		return &stripe.CheckoutSession{
+			ID:          "cs_test_wechat",
+			URL:         "https://checkout.stripe.test/wechat",
+			AmountTotal: 200,
+			Currency:    stripe.CurrencyUSD,
+		}, nil
+	}
+
+	_, err := createStripeCheckoutSession(
+		"ref_wechat",
+		"",
+		"payer@example.test",
+		2,
+		"https://unirouters.cc/wallet?stripe=success",
+		"https://unirouters.cc/wallet?stripe=cancel",
+		stripeCheckoutMethodWeChatPay,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+	require.Len(t, captured.PaymentMethodTypes, 1)
+	require.NotNil(t, captured.PaymentMethodTypes[0])
+	assert.Equal(t, string(stripe.PaymentMethodTypeWeChatPay), *captured.PaymentMethodTypes[0])
+	require.NotNil(t, captured.PaymentMethodOptions)
+	require.NotNil(t, captured.PaymentMethodOptions.WeChatPay)
+	require.NotNil(t, captured.PaymentMethodOptions.WeChatPay.Client)
+	assert.Equal(t, string(stripe.PaymentIntentPaymentMethodOptionsWeChatPayClientWeb), *captured.PaymentMethodOptions.WeChatPay.Client)
+	require.NotNil(t, captured.AdaptivePricing)
+	require.NotNil(t, captured.AdaptivePricing.Enabled)
+	assert.True(t, *captured.AdaptivePricing.Enabled)
+	assert.Equal(t, stripeCheckoutMethodWeChatPay, captured.Metadata["checkout_method"])
+	assert.Equal(t, stripeCheckoutMethodWeChatPay, captured.PaymentIntentData.Metadata["checkout_method"])
+	assert.Equal(t, "false", captured.Extra.Values.Get("managed_payments[enabled]"))
+}
+
+func TestStripeCheckoutMethodValidationIsStrictAndBackwardCompatible(t *testing.T) {
+	for _, checkoutMethod := range []string{"", stripeCheckoutMethodStandard, stripeCheckoutMethodWeChatPay} {
+		actual, err := normalizeStripeCheckoutMethod(checkoutMethod)
+		require.NoError(t, err)
+		if checkoutMethod == "" {
+			assert.Equal(t, stripeCheckoutMethodStandard, actual)
+		} else {
+			assert.Equal(t, checkoutMethod, actual)
+		}
+	}
+
+	for _, checkoutMethod := range []string{"wechat", "card", "WECHAT_PAY", " wechat_pay", "wechat_pay "} {
+		_, err := normalizeStripeCheckoutMethod(checkoutMethod)
+		require.Error(t, err)
+	}
+}
+
+func TestStripeWeChatPayCheckoutRequiresExplicitCapabilityFlag(t *testing.T) {
+	t.Setenv("STRIPE_API_SECRET", "")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "")
+	t.Setenv("STRIPE_PRICE_ID", "")
+	confirmPaymentComplianceForTest(t)
+	originalAPISecret := setting.StripeApiSecret
+	originalWebhookSecret := setting.StripeWebhookSecret
+	originalPrice := setting.StripePriceId
+	t.Cleanup(func() {
+		setting.StripeApiSecret = originalAPISecret
+		setting.StripeWebhookSecret = originalWebhookSecret
+		setting.StripePriceId = originalPrice
+	})
+	setting.StripeApiSecret = "rk_test_wechat_capability"
+	setting.StripeWebhookSecret = "whsec_wechat_capability"
+	setting.StripePriceId = "price_wechat_capability"
+
+	t.Setenv("STRIPE_WECHAT_PAY_ENABLED", "")
+	require.NoError(t, requireStripeCheckoutMethodEnabled(stripeCheckoutMethodStandard))
+	require.Error(t, requireStripeCheckoutMethodEnabled(stripeCheckoutMethodWeChatPay))
+
+	t.Setenv("STRIPE_WECHAT_PAY_ENABLED", "true")
+	require.NoError(t, requireStripeCheckoutMethodEnabled(stripeCheckoutMethodWeChatPay))
+}
+
+func TestStripePayRequestValidatesAmountProviderAndCheckoutMethodTogether(t *testing.T) {
+	originalQuotaPerUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = 500_000
+	t.Cleanup(func() {
+		common.QuotaPerUnit = originalQuotaPerUnit
+	})
+
+	testCases := []struct {
+		name    string
+		request StripePayRequest
+		wantErr bool
+	}{
+		{
+			name:    "legacy standard minimum",
+			request: StripePayRequest{Amount: 2},
+		},
+		{
+			name: "wechat maximum",
+			request: StripePayRequest{
+				Amount:         50_000,
+				PaymentMethod:  model.PaymentMethodStripe,
+				CheckoutMethod: stripeCheckoutMethodWeChatPay,
+			},
+		},
+		{
+			name:    "below minimum",
+			request: StripePayRequest{Amount: 1, CheckoutMethod: stripeCheckoutMethodStandard},
+			wantErr: true,
+		},
+		{
+			name:    "above maximum",
+			request: StripePayRequest{Amount: 50_001, CheckoutMethod: stripeCheckoutMethodWeChatPay},
+			wantErr: true,
+		},
+		{
+			name:    "wrong provider",
+			request: StripePayRequest{Amount: 2, PaymentMethod: "wxpay"},
+			wantErr: true,
+		},
+		{
+			name:    "unknown checkout method",
+			request: StripePayRequest{Amount: 2, CheckoutMethod: "card"},
+			wantErr: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			quota, err := validateStripePayRequest(&testCase.request)
+			if testCase.wantErr {
+				require.Error(t, err)
+				assert.Zero(t, quota)
+				return
+			}
+			require.NoError(t, err)
+			assert.Positive(t, quota)
+		})
+	}
 }
 
 func TestStripeSDKUsesManagedPaymentsCompatibleAPIVersion(t *testing.T) {
@@ -128,6 +287,7 @@ func TestTopUpInfoPublishesStripeUSDContract(t *testing.T) {
 	t.Setenv("STRIPE_API_SECRET", "")
 	t.Setenv("STRIPE_WEBHOOK_SECRET", "")
 	t.Setenv("STRIPE_PRICE_ID", "")
+	t.Setenv("STRIPE_WECHAT_PAY_ENABLED", "true")
 	confirmPaymentComplianceForTest(t)
 	originalAPISecret := setting.StripeApiSecret
 	originalWebhookSecret := setting.StripeWebhookSecret
@@ -153,6 +313,7 @@ func TestTopUpInfoPublishesStripeUSDContract(t *testing.T) {
 			StripeMinTopUp      int64 `json:"stripe_min_topup"`
 			StripeMaxTopUp      int64 `json:"stripe_max_topup"`
 			StripeAmountOptions []int `json:"stripe_amount_options"`
+			EnableWeChatPay     bool  `json:"enable_stripe_wechat_pay"`
 		} `json:"data"`
 	}
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
@@ -160,6 +321,7 @@ func TestTopUpInfoPublishesStripeUSDContract(t *testing.T) {
 	assert.EqualValues(t, 2, body.Data.StripeMinTopUp)
 	assert.EqualValues(t, 50000, body.Data.StripeMaxTopUp)
 	assert.Equal(t, []int{2, 5, 10, 50, 200, 500}, body.Data.StripeAmountOptions)
+	assert.True(t, body.Data.EnableWeChatPay)
 }
 
 func TestTopUpInfoHidesEpayMethodsWhenGatewayIsUnconfigured(t *testing.T) {

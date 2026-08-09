@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Gift, ExternalLink, Loader2, Receipt, WalletCards } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { Fragment, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -37,6 +37,7 @@ import {
 import { formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
+import { PAYMENT_TYPES, STRIPE_CHECKOUT_METHODS } from '../constants'
 import {
   formatCurrency,
   formatUsdAmount,
@@ -47,6 +48,7 @@ import {
   isIntegerTopupAmount,
   calculatePresetPricing,
   validateStripeTopupAmount,
+  getPaymentLoadingKey,
 } from '../lib'
 import type {
   PaymentMethod,
@@ -163,6 +165,25 @@ export function RechargeFormCard({
   ) {
     singleStripePaymentMethod = topupInfo.pay_methods[0]
   }
+  const standardStripePaymentMethod = singleStripePaymentMethod
+    ? {
+        ...singleStripePaymentMethod,
+        checkout_method: STRIPE_CHECKOUT_METHODS.STANDARD,
+      }
+    : null
+  const weChatStripePaymentMethod = singleStripePaymentMethod
+    ? {
+        ...singleStripePaymentMethod,
+        name: t('WeChat Pay'),
+        checkout_method: STRIPE_CHECKOUT_METHODS.WECHAT_PAY,
+      }
+    : null
+  const stripeStandardLoadingKey = standardStripePaymentMethod
+    ? getPaymentLoadingKey(standardStripePaymentMethod)
+    : ''
+  const stripeWeChatLoadingKey = weChatStripePaymentMethod
+    ? getPaymentLoadingKey(weChatStripePaymentMethod)
+    : ''
 
   let stripeValidationMessage = ''
   if (stripeValidation === 'integer') {
@@ -430,11 +451,13 @@ export function RechargeFormCard({
                 </div>
                 <div data-slot='wallet-payment-total' className='space-y-2.5'>
                   <p className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
-                    {t('Amount to pay:')}
+                    {standardStripePaymentMethod
+                      ? t('USD credit amount')
+                      : t('Amount to pay:')}
                   </p>
                   <div
                     data-slot='wallet-payment-total-display'
-                    className='bg-muted/30 flex h-10 items-center justify-end rounded-lg border px-3'
+                    className='bg-muted/30 flex h-10 items-center justify-start rounded-lg border px-3'
                   >
                     {calculating ? (
                       <Skeleton className='h-5 w-16' />
@@ -447,26 +470,64 @@ export function RechargeFormCard({
                 </div>
               </div>
 
-              {singleStripePaymentMethod ? (
-                <Button
-                  data-slot='wallet-primary-payment-button'
-                  onClick={() =>
-                    onPaymentMethodSelect(singleStripePaymentMethod)
-                  }
-                  disabled={!!singlePaymentDisabledReason || !!paymentLoading}
-                  title={singlePaymentDisabledReason || undefined}
-                  aria-label={
-                    singlePaymentDisabledReason
-                      ? `${t('Pay')}. ${singlePaymentDisabledReason}`
-                      : t('Pay')
-                  }
-                  className='h-10 w-full sm:w-auto sm:min-w-56'
-                >
-                  {paymentLoading === singleStripePaymentMethod.type && (
-                    <Loader2 className='h-4 w-4 animate-spin' />
+              {standardStripePaymentMethod ? (
+                <div
+                  data-slot='wallet-stripe-checkout-actions'
+                  className={cn(
+                    'grid w-full gap-2 sm:w-auto',
+                    topupInfo?.enable_stripe_wechat_pay
+                      ? 'sm:grid-cols-2'
+                      : 'sm:grid-cols-1'
                   )}
-                  {t('Pay')}
-                </Button>
+                >
+                  <Button
+                    data-slot='wallet-primary-payment-button'
+                    onClick={() =>
+                      onPaymentMethodSelect(standardStripePaymentMethod)
+                    }
+                    disabled={!!singlePaymentDisabledReason || !!paymentLoading}
+                    title={singlePaymentDisabledReason || undefined}
+                    aria-label={
+                      singlePaymentDisabledReason
+                        ? `${t('Pay')}. ${singlePaymentDisabledReason}`
+                        : t('Pay')
+                    }
+                    className='h-10 w-full sm:min-w-52'
+                  >
+                    {paymentLoading === stripeStandardLoadingKey && (
+                      <Loader2 className='h-4 w-4 animate-spin' />
+                    )}
+                    {t('Pay')}
+                  </Button>
+
+                  {topupInfo?.enable_stripe_wechat_pay &&
+                    weChatStripePaymentMethod && (
+                      <Button
+                        data-slot='wallet-wechat-payment-button'
+                        variant='outline'
+                        onClick={() =>
+                          onPaymentMethodSelect(weChatStripePaymentMethod)
+                        }
+                        disabled={
+                          !!singlePaymentDisabledReason || !!paymentLoading
+                        }
+                        title={singlePaymentDisabledReason || undefined}
+                        aria-label={
+                          singlePaymentDisabledReason
+                            ? `${t('WeChat Pay')}. ${singlePaymentDisabledReason}`
+                            : t('WeChat Pay')
+                        }
+                        className='h-10 w-full border-[#07C160]/50 text-[#079447] hover:border-[#07C160] hover:bg-[#07C160]/5 hover:text-[#067a3b] sm:min-w-52 dark:text-[#41d17c] dark:hover:text-[#5fe494]'
+                      >
+                        {paymentLoading === stripeWeChatLoadingKey ? (
+                          <Loader2 className='h-4 w-4 animate-spin' />
+                        ) : (
+                          getPaymentIcon(PAYMENT_TYPES.WECHAT, 'h-4 w-4')
+                        )}
+                        {t('WeChat Pay')}
+                      </Button>
+                    )}
+                </div>
               ) : (
                 <div className='space-y-2.5 sm:space-y-3'>
                   <Label className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
@@ -475,6 +536,17 @@ export function RechargeFormCard({
                   {hasStandardPaymentMethods ? (
                     <div className='grid grid-cols-2 gap-1.5 sm:gap-3 lg:grid-cols-3'>
                       {topupInfo?.pay_methods?.map((method) => {
+                        const stripeMethod =
+                          method.type === PAYMENT_TYPES.STRIPE
+                        const selectableMethod: PaymentMethod = stripeMethod
+                          ? {
+                              ...method,
+                              name: t('Pay'),
+                              checkout_method: STRIPE_CHECKOUT_METHODS.STANDARD,
+                            }
+                          : method
+                        const loadingKey =
+                          getPaymentLoadingKey(selectableMethod)
                         const minTopup = method.min_topup || 0
                         const belowMethodMinimum = minTopup > topupAmount
                         const invalidStripeAmount =
@@ -512,33 +584,40 @@ export function RechargeFormCard({
                           disabledLabel = `${t('Minimum:')} ${minTopup}`
                         }
 
+                        let methodIcon = getPaymentIcon(
+                          method.type,
+                          'h-4 w-4',
+                          method.icon,
+                          method.name
+                        )
+                        if (stripeMethod) {
+                          methodIcon = <WalletCards className='h-4 w-4' />
+                        }
+                        if (paymentLoading === loadingKey) {
+                          methodIcon = (
+                            <Loader2 className='h-4 w-4 animate-spin' />
+                          )
+                        }
+
                         const button = (
                           <Button
-                            key={method.type}
                             variant='outline'
-                            onClick={() => onPaymentMethodSelect(method)}
+                            onClick={() =>
+                              onPaymentMethodSelect(selectableMethod)
+                            }
                             disabled={disabled || !!paymentLoading}
                             title={disabledReason}
                             aria-label={
                               disabledReason
-                                ? `${method.name}. ${disabledReason}`
-                                : method.name
+                                ? `${selectableMethod.name}. ${disabledReason}`
+                                : selectableMethod.name
                             }
                             className='min-h-14 min-w-0 justify-start gap-2 rounded-lg px-3 py-2 text-left'
                           >
-                            {paymentLoading === method.type ? (
-                              <Loader2 className='h-4 w-4 animate-spin' />
-                            ) : (
-                              getPaymentIcon(
-                                method.type,
-                                'h-4 w-4',
-                                method.icon,
-                                method.name
-                              )
-                            )}
+                            {methodIcon}
                             <span className='flex min-w-0 flex-col items-start gap-0.5'>
                               <span className='max-w-full truncate'>
-                                {method.name}
+                                {selectableMethod.name}
                               </span>
                               {disabledLabel && (
                                 <span className='text-muted-foreground max-w-full truncate text-[11px] leading-4 font-normal'>
@@ -549,15 +628,81 @@ export function RechargeFormCard({
                           </Button>
                         )
 
-                        return disabled ? (
-                          <TooltipProvider key={method.type}>
+                        const paymentButton = disabled ? (
+                          <TooltipProvider key={loadingKey}>
                             <Tooltip>
                               <TooltipTrigger render={button} />
                               <TooltipContent>{disabledReason}</TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
                         ) : (
-                          button
+                          <Fragment key={loadingKey}>{button}</Fragment>
+                        )
+
+                        if (
+                          !stripeMethod ||
+                          !topupInfo.enable_stripe_wechat_pay
+                        ) {
+                          return paymentButton
+                        }
+
+                        const weChatMethod: PaymentMethod = {
+                          ...method,
+                          name: t('WeChat Pay'),
+                          checkout_method: STRIPE_CHECKOUT_METHODS.WECHAT_PAY,
+                        }
+                        const weChatLoadingKey =
+                          getPaymentLoadingKey(weChatMethod)
+                        const weChatButton = (
+                          <Button
+                            data-slot='wallet-wechat-payment-button'
+                            variant='outline'
+                            onClick={() => onPaymentMethodSelect(weChatMethod)}
+                            disabled={disabled || !!paymentLoading}
+                            title={disabledReason}
+                            aria-label={
+                              disabledReason
+                                ? `${t('WeChat Pay')}. ${disabledReason}`
+                                : t('WeChat Pay')
+                            }
+                            className='min-h-14 min-w-0 justify-start gap-2 rounded-lg border-[#07C160]/50 px-3 py-2 text-left text-[#079447] hover:border-[#07C160] hover:bg-[#07C160]/5 hover:text-[#067a3b] dark:text-[#41d17c] dark:hover:text-[#5fe494]'
+                          >
+                            {paymentLoading === weChatLoadingKey ? (
+                              <Loader2 className='h-4 w-4 animate-spin' />
+                            ) : (
+                              getPaymentIcon(PAYMENT_TYPES.WECHAT, 'h-4 w-4')
+                            )}
+                            <span className='flex min-w-0 flex-col items-start gap-0.5'>
+                              <span className='max-w-full truncate'>
+                                {t('WeChat Pay')}
+                              </span>
+                              {disabledLabel && (
+                                <span className='text-muted-foreground max-w-full truncate text-[11px] leading-4 font-normal'>
+                                  {disabledLabel}
+                                </span>
+                              )}
+                            </span>
+                          </Button>
+                        )
+
+                        const renderedWeChatButton = disabled ? (
+                          <TooltipProvider key={weChatLoadingKey}>
+                            <Tooltip>
+                              <TooltipTrigger render={weChatButton} />
+                              <TooltipContent>{disabledReason}</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : (
+                          <Fragment key={weChatLoadingKey}>
+                            {weChatButton}
+                          </Fragment>
+                        )
+
+                        return (
+                          <Fragment key='stripe-checkout-actions'>
+                            {paymentButton}
+                            {renderedWeChatButton}
+                          </Fragment>
                         )
                       })}
                     </div>

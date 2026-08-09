@@ -32,14 +32,14 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatLocalCurrencyAmount } from '@/lib/currency'
 
-import { DEFAULT_DISCOUNT_RATE } from '../../constants'
+import { DEFAULT_DISCOUNT_RATE, STRIPE_CHECKOUT_METHODS } from '../../constants'
 import {
   formatCurrency,
   formatUsdAmount,
   getPaymentIcon,
   isStripePayment,
 } from '../../lib'
-import type { PaymentMethod } from '../../types'
+import type { PaymentMethod, StripeCheckoutMethod } from '../../types'
 
 interface PaymentConfirmDialogProps {
   open: boolean
@@ -53,6 +53,7 @@ interface PaymentConfirmDialogProps {
   discountRate?: number
   usdExchangeRate?: number
   currencyCode?: 'USD'
+  stripeCheckoutMethod?: StripeCheckoutMethod
 }
 
 export function PaymentConfirmDialog({
@@ -67,12 +68,15 @@ export function PaymentConfirmDialog({
   discountRate = DEFAULT_DISCOUNT_RATE,
   usdExchangeRate = 1,
   currencyCode,
+  stripeCheckoutMethod,
 }: PaymentConfirmDialogProps) {
   const { t } = useTranslation()
   const hasDiscount = discountRate > 0 && discountRate < 1 && paymentAmount > 0
   const originalAmount = hasDiscount ? paymentAmount / discountRate : 0
   const discountAmount = hasDiscount ? originalAmount - paymentAmount : 0
   const showPaymentProvider = !isStripePayment(paymentMethod?.type ?? '')
+  const isWeChatPay =
+    stripeCheckoutMethod === STRIPE_CHECKOUT_METHODS.WECHAT_PAY
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -104,7 +108,7 @@ export function PaymentConfirmDialog({
 
           <div className='flex items-center justify-between'>
             <span className='text-muted-foreground text-sm'>
-              {t('You Pay')}
+              {isWeChatPay ? t('USD credit amount') : t('You Pay')}
             </span>
             {calculating ? (
               <Skeleton className='h-6 w-24' />
@@ -155,6 +159,25 @@ export function PaymentConfirmDialog({
                   <span className='font-medium'>{paymentMethod?.name}</span>
                 </div>
               </div>
+            </div>
+          )}
+
+          {isWeChatPay && (
+            <div className='border-t pt-4'>
+              <div className='flex items-center justify-between gap-4'>
+                <span className='text-muted-foreground text-sm'>
+                  {t('Payment Method')}
+                </span>
+                <div className='flex items-center gap-2 font-medium text-[#079447] dark:text-[#41d17c]'>
+                  {getPaymentIcon('wxpay', 'h-4 w-4')}
+                  <span>{t('WeChat Pay')}</span>
+                </div>
+              </div>
+              <p className='text-muted-foreground mt-2 text-xs leading-5'>
+                {t(
+                  'The final converted local-currency amount will be shown on the checkout page before payment.'
+                )}
+              </p>
             </div>
           )}
         </div>

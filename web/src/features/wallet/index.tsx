@@ -36,7 +36,11 @@ import { RechargeFormCard } from './components/recharge-form-card'
 import { SubscriptionPlansCard } from './components/subscription-plans-card'
 import { TeamWalletNotice } from './components/team-wallet-notice'
 import { WalletStatsCard } from './components/wallet-stats-card'
-import { DEFAULT_DISCOUNT_RATE, PAYMENT_TYPES } from './constants'
+import {
+  DEFAULT_DISCOUNT_RATE,
+  PAYMENT_RETURN_REFRESH_DELAYS_MS,
+  PAYMENT_TYPES,
+} from './constants'
 import {
   useTopupInfo,
   usePayment,
@@ -55,6 +59,7 @@ import {
   dispatchSelectedPayment,
   canTopUpPersonalWallet,
   validateStripeTopupAmount,
+  getPaymentLoadingKey,
 } from './lib'
 import type {
   UserWalletData,
@@ -125,9 +130,9 @@ export function Wallet(props: WalletProps) {
     useWaffoPancakePayment()
 
   // Fetch and refresh user data
-  const fetchUser = useCallback(async () => {
+  const fetchUser = useCallback(async (showLoading = true) => {
     try {
-      setUserLoading(true)
+      if (showLoading) setUserLoading(true)
       const response = await getSelf()
       if (response.success && response.data) {
         setUser(response.data as UserWalletData)
@@ -136,7 +141,7 @@ export function Wallet(props: WalletProps) {
       // eslint-disable-next-line no-console
       console.error('Failed to fetch user data:', error)
     } finally {
-      setUserLoading(false)
+      if (showLoading) setUserLoading(false)
     }
   }, [])
 
@@ -154,17 +159,29 @@ export function Wallet(props: WalletProps) {
   useEffect(() => {
     if (!props.initialStripeStatus) return
 
+    const refreshTimers: number[] = []
+
     if (props.initialStripeStatus === 'success') {
       toast.success(
         t(
           'Returned from Stripe. We are confirming your payment and refreshing the balance.'
         )
       )
-      void fetchUser()
+      PAYMENT_RETURN_REFRESH_DELAYS_MS.forEach((delay) => {
+        refreshTimers.push(
+          window.setTimeout(() => {
+            void fetchUser(false)
+          }, delay)
+        )
+      })
     } else {
       toast.info(t('Stripe top-up was cancelled. No charge was made.'))
     }
     window.history.replaceState({}, '', window.location.pathname)
+
+    return () => {
+      refreshTimers.forEach((timer) => window.clearTimeout(timer))
+    }
   }, [fetchUser, props.initialStripeStatus, t])
 
   // Initialize topup amount when topup info is loaded
@@ -222,7 +239,7 @@ export function Wallet(props: WalletProps) {
 
     setSelectedPaymentMethod(method)
     setSelectedWaffoMethodIndex(null)
-    setPaymentLoading(method.type)
+    setPaymentLoading(getPaymentLoadingKey(method))
 
     try {
       // Validate minimum topup
@@ -462,6 +479,7 @@ export function Wallet(props: WalletProps) {
             ? 'USD'
             : undefined
         }
+        stripeCheckoutMethod={selectedPaymentMethod?.checkout_method}
       />
 
       <TransferDialog

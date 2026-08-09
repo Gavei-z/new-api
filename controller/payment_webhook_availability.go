@@ -21,6 +21,10 @@ func isStripeTopUpEnabled() bool {
 		strings.TrimSpace(setting.GetStripePriceId()) != ""
 }
 
+func isStripeWeChatPayEnabled() bool {
+	return isStripeTopUpEnabled() && setting.IsStripeWeChatPayEnabled()
+}
+
 func isStripeWebhookConfigured() bool {
 	return strings.TrimSpace(setting.GetStripeWebhookSecret()) != ""
 }

@@ -26,9 +26,11 @@ import (
 )
 
 const (
-	stripeMinimumTopUp             = model.StripeMinimumTopUpUSD
-	stripeMaximumTopUp             = model.StripeMaximumTopUpUSD
-	stripeWebhookBodyMaxSize int64 = 1 << 20
+	stripeMinimumTopUp                  = model.StripeMinimumTopUpUSD
+	stripeMaximumTopUp                  = model.StripeMaximumTopUpUSD
+	stripeWebhookBodyMaxSize      int64 = 1 << 20
+	stripeCheckoutMethodStandard        = "standard"
+	stripeCheckoutMethodWeChatPay       = "wechat_pay"
 )
 
 var (
@@ -40,10 +42,11 @@ var (
 // The funding target is intentionally absent: it is resolved from the
 // authenticated route and cannot be selected by the client.
 type StripePayRequest struct {
-	Amount        int64  `json:"amount"`
-	PaymentMethod string `json:"payment_method"`
-	SuccessURL    string `json:"success_url,omitempty"`
-	CancelURL     string `json:"cancel_url,omitempty"`
+	Amount         int64  `json:"amount"`
+	PaymentMethod  string `json:"payment_method"`
+	CheckoutMethod string `json:"checkout_method,omitempty"`
+	SuccessURL     string `json:"success_url,omitempty"`
+	CancelURL      string `json:"cancel_url,omitempty"`
 }
 
 type StripeAdaptor struct{}
@@ -84,12 +87,33 @@ func resolveStripeFundingTarget(c *gin.Context, targetType string) (int, error) 
 	}
 }
 
+func normalizeStripeCheckoutMethod(checkoutMethod string) (string, error) {
+	switch checkoutMethod {
+	case "", stripeCheckoutMethodStandard:
+		return stripeCheckoutMethodStandard, nil
+	case stripeCheckoutMethodWeChatPay:
+		return stripeCheckoutMethodWeChatPay, nil
+	default:
+		return "", errors.New("unsupported Stripe checkout method")
+	}
+}
+
+func requireStripeCheckoutMethodEnabled(checkoutMethod string) error {
+	if checkoutMethod == stripeCheckoutMethodWeChatPay && !isStripeWeChatPayEnabled() {
+		return errors.New("WeChat Pay is unavailable")
+	}
+	return nil
+}
+
 func validateStripePayRequest(req *StripePayRequest) (int64, error) {
 	if req == nil {
 		return 0, errors.New("invalid payment request")
 	}
 	if req.PaymentMethod != "" && req.PaymentMethod != model.PaymentMethodStripe {
 		return 0, errors.New("unsupported payment method")
+	}
+	if _, err := normalizeStripeCheckoutMethod(req.CheckoutMethod); err != nil {
+		return 0, err
 	}
 	return stripeQuotaForAmount(req.Amount)
 }
@@ -104,6 +128,11 @@ func (*StripeAdaptor) RequestAmount(c *gin.Context, req *StripePayRequest, targe
 		return
 	}
 	if _, err := validateStripePayRequest(req); err != nil {
+		writeStripeRequestError(c, err.Error())
+		return
+	}
+	checkoutMethod, _ := normalizeStripeCheckoutMethod(req.CheckoutMethod)
+	if err := requireStripeCheckoutMethodEnabled(checkoutMethod); err != nil {
 		writeStripeRequestError(c, err.Error())
 		return
 	}
@@ -129,6 +158,15 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest, targetTy
 	}
 	if req.PaymentMethod == "" {
 		req.PaymentMethod = model.PaymentMethodStripe
+	}
+	checkoutMethod, err := normalizeStripeCheckoutMethod(req.CheckoutMethod)
+	if err != nil {
+		writeStripeRequestError(c, err.Error())
+		return
+	}
+	if err := requireStripeCheckoutMethodEnabled(checkoutMethod); err != nil {
+		writeStripeRequestError(c, err.Error())
+		return
 	}
 	if req.SuccessURL != "" && common.ValidateRedirectURL(req.SuccessURL) != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "error", "data": "payment success redirect URL is not trusted"})
@@ -184,6 +222,7 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest, targetTy
 		req.Amount,
 		successURL,
 		cancelURL,
+		checkoutMethod,
 	)
 	if err != nil {
 		_ = model.FailPendingStripeTopUp(referenceID, common.TopUpStatusFailed)
@@ -215,10 +254,11 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest, targetTy
 	}
 
 	logger.LogInfo(c.Request.Context(), fmt.Sprintf(
-		"Stripe Checkout Session created trade_no=%s target=%s target_id=%d amount_minor=%d",
+		"Stripe Checkout Session created trade_no=%s target=%s target_id=%d checkout_method=%s amount_minor=%d",
 		referenceID,
 		targetType,
 		targetID,
+		checkoutMethod,
 		topUp.ExpectedAmountMinor,
 	))
 	c.JSON(http.StatusOK, gin.H{
@@ -293,9 +333,10 @@ func StripeWebhook(c *gin.Context) {
 	}
 	if err := processStripeWebhookEvent(ctx, event); err != nil {
 		logger.LogError(ctx, fmt.Sprintf(
-			"Stripe webhook processing failed event_id=%s event_type=%s error=%q",
+			"Stripe webhook processing failed event_id=%s event_type=%s api_version=%s error=%q",
 			event.ID,
 			event.Type,
+			event.APIVersion,
 			err.Error(),
 		))
 		// A non-2xx response is intentional: Stripe must retry transient
@@ -303,7 +344,12 @@ func StripeWebhook(c *gin.Context) {
 		c.AbortWithStatus(http.StatusServiceUnavailable)
 		return
 	}
-	logger.LogInfo(ctx, fmt.Sprintf("Stripe webhook processed event_id=%s event_type=%s", event.ID, event.Type))
+	logger.LogInfo(ctx, fmt.Sprintf(
+		"Stripe webhook processed event_id=%s event_type=%s api_version=%s",
+		event.ID,
+		event.Type,
+		event.APIVersion,
+	))
 	c.Status(http.StatusOK)
 }
 
@@ -645,7 +691,14 @@ func createStripeCheckoutSession(
 	amount int64,
 	successURL string,
 	cancelURL string,
+	checkoutMethod string,
 ) (*stripe.CheckoutSession, error) {
+	normalizedCheckoutMethod, err := normalizeStripeCheckoutMethod(checkoutMethod)
+	if err != nil {
+		return nil, err
+	}
+	checkoutMethod = normalizedCheckoutMethod
+
 	secret := setting.GetStripeApiSecret()
 	if !strings.HasPrefix(secret, "sk_") && !strings.HasPrefix(secret, "rk_") {
 		return nil, errors.New("invalid Stripe API key")
@@ -669,9 +722,28 @@ func createStripeCheckoutSession(
 		Mode:                stripe.String(string(stripe.CheckoutSessionModePayment)),
 		AllowPromotionCodes: stripe.Bool(false),
 		PaymentIntentData: &stripe.CheckoutSessionPaymentIntentDataParams{
-			Metadata: map[string]string{"topup_reference": referenceID},
+			Metadata: map[string]string{
+				"topup_reference": referenceID,
+				"checkout_method": checkoutMethod,
+			},
 		},
-		Metadata: map[string]string{"topup_reference": referenceID},
+		Metadata: map[string]string{
+			"topup_reference": referenceID,
+			"checkout_method": checkoutMethod,
+		},
+	}
+	if checkoutMethod == stripeCheckoutMethodWeChatPay {
+		params.PaymentMethodTypes = []*string{
+			stripe.String(string(stripe.PaymentMethodTypeWeChatPay)),
+		}
+		params.PaymentMethodOptions = &stripe.CheckoutSessionPaymentMethodOptionsParams{
+			WeChatPay: &stripe.CheckoutSessionPaymentMethodOptionsWeChatPayParams{
+				Client: stripe.String(string(stripe.PaymentIntentPaymentMethodOptionsWeChatPayClientWeb)),
+			},
+		}
+		params.AdaptivePricing = &stripe.CheckoutSessionAdaptivePricingParams{
+			Enabled: stripe.Bool(true),
+		}
 	}
 	params.SetIdempotencyKey("stripe-topup:" + referenceID)
 	// UniRouters sells a fixed amount of prepaid USD credit. Managed Payments
@@ -697,7 +769,15 @@ func genStripeLink(referenceID string, customerID string, email string, amount i
 	if successURL == "" || cancelURL == "" {
 		successURL, cancelURL = stripeReturnURLs(model.StripeFundingTargetUser, successURL, cancelURL)
 	}
-	checkoutSession, err := createStripeCheckoutSession(referenceID, customerID, email, amount, successURL, cancelURL)
+	checkoutSession, err := createStripeCheckoutSession(
+		referenceID,
+		customerID,
+		email,
+		amount,
+		successURL,
+		cancelURL,
+		stripeCheckoutMethodStandard,
+	)
 	if err != nil {
 		return "", err
 	}

@@ -60,6 +60,7 @@ const stripeMethod = { name: 'Stripe', type: 'stripe' } satisfies PaymentMethod
 const stripeTopupInfo = {
   enable_online_topup: false,
   enable_stripe_topup: true,
+  enable_stripe_wechat_pay: true,
   pay_methods: [stripeMethod],
   min_topup: 2,
   stripe_min_topup: 2,
@@ -136,20 +137,25 @@ describe('wallet recharge form layout', () => {
     domWindow.close()
   })
 
-  test('shows one neutral payment action when Stripe is the only method', async () => {
-    let selectedMethod: PaymentMethod | undefined
+  test('shows separate neutral and WeChat actions without Stripe branding', async () => {
+    const selectedMethods: PaymentMethod[] = []
     const rendered = await renderRechargeForm({
       onPaymentMethodSelect: (method) => {
-        selectedMethod = method
+        selectedMethods.push(method)
       },
     })
 
     const payButton = rendered.container.querySelector<HTMLButtonElement>(
       '[data-slot="wallet-primary-payment-button"]'
     )
+    const weChatButton = rendered.container.querySelector<HTMLButtonElement>(
+      '[data-slot="wallet-wechat-payment-button"]'
+    )
 
     assert.ok(payButton)
+    assert.ok(weChatButton)
     assert.equal(payButton.textContent?.trim(), 'Pay')
+    assert.equal(weChatButton.textContent?.trim(), 'WeChat Pay')
     assert.equal(
       rendered.container.textContent?.includes('Payment Method'),
       false
@@ -157,7 +163,15 @@ describe('wallet recharge form layout', () => {
     assert.equal(rendered.container.textContent?.includes('Stripe'), false)
 
     await act(async () => payButton.click())
-    assert.deepEqual(selectedMethod, stripeMethod)
+    await act(async () => weChatButton.click())
+    assert.deepEqual(selectedMethods, [
+      { ...stripeMethod, checkout_method: 'standard' },
+      {
+        ...stripeMethod,
+        name: 'WeChat Pay',
+        checkout_method: 'wechat_pay',
+      },
+    ])
 
     await unmountRechargeForm(rendered)
   })
@@ -187,6 +201,8 @@ describe('wallet recharge form layout', () => {
     assert.equal(input.classList.contains('h-10'), true)
     assert.ok(total)
     assert.equal(total.classList.contains('h-10'), true)
+    assert.equal(total.classList.contains('justify-start'), true)
+    assert.equal(total.classList.contains('justify-end'), false)
 
     await unmountRechargeForm(rendered)
   })
@@ -201,23 +217,74 @@ describe('wallet recharge form layout', () => {
     const payButton = rendered.container.querySelector<HTMLButtonElement>(
       '[data-slot="wallet-primary-payment-button"]'
     )
+    const weChatButton = rendered.container.querySelector<HTMLButtonElement>(
+      '[data-slot="wallet-wechat-payment-button"]'
+    )
 
     assert.equal(input?.getAttribute('aria-invalid'), 'true')
     assert.equal(payButton?.disabled, true)
+    assert.equal(weChatButton?.disabled, true)
 
     await unmountRechargeForm(rendered)
   })
 
   test('prevents duplicate payment selection while checkout is loading', async () => {
     const rendered = await renderRechargeForm({
-      paymentLoading: 'stripe',
+      paymentLoading: 'stripe:wechat_pay',
     })
     const payButton = rendered.container.querySelector<HTMLButtonElement>(
       '[data-slot="wallet-primary-payment-button"]'
     )
+    const weChatButton = rendered.container.querySelector<HTMLButtonElement>(
+      '[data-slot="wallet-wechat-payment-button"]'
+    )
 
     assert.equal(payButton?.disabled, true)
+    assert.equal(weChatButton?.disabled, true)
+    assert.equal(payButton?.querySelector('svg.animate-spin'), null)
+    assert.ok(weChatButton?.querySelector('svg.animate-spin'))
+
+    await unmountRechargeForm(rendered)
+  })
+
+  test('shows loading only on the standard action when standard checkout starts', async () => {
+    const rendered = await renderRechargeForm({
+      paymentLoading: 'stripe:standard',
+    })
+    const payButton = rendered.container.querySelector<HTMLButtonElement>(
+      '[data-slot="wallet-primary-payment-button"]'
+    )
+    const weChatButton = rendered.container.querySelector<HTMLButtonElement>(
+      '[data-slot="wallet-wechat-payment-button"]'
+    )
+
+    assert.equal(payButton?.disabled, true)
+    assert.equal(weChatButton?.disabled, true)
     assert.ok(payButton?.querySelector('svg.animate-spin'))
+    assert.equal(weChatButton?.querySelector('svg.animate-spin'), null)
+
+    await unmountRechargeForm(rendered)
+  })
+
+  test('keeps the standard action compact when WeChat capability is absent', async () => {
+    const rendered = await renderRechargeForm({
+      topupInfo: {
+        ...stripeTopupInfo,
+        enable_stripe_wechat_pay: false,
+      },
+    })
+    const actions = rendered.container.querySelector<HTMLElement>(
+      '[data-slot="wallet-stripe-checkout-actions"]'
+    )
+
+    assert.ok(actions)
+    assert.equal(
+      rendered.container.querySelector(
+        '[data-slot="wallet-wechat-payment-button"]'
+      ),
+      null
+    )
+    assert.equal(actions.classList.contains('sm:grid-cols-1'), true)
 
     await unmountRechargeForm(rendered)
   })
@@ -263,7 +330,12 @@ describe('wallet recharge form layout', () => {
       rendered.container.textContent?.includes('Payment Method'),
       true
     )
-    assert.equal(rendered.container.textContent?.includes('Stripe'), true)
+    assert.equal(rendered.container.textContent?.includes('Stripe'), false)
+    assert.equal(rendered.container.textContent?.includes('WeChat Pay'), true)
+    assert.equal(
+      rendered.container.textContent?.includes('Bank transfer'),
+      true
+    )
     assert.equal(
       rendered.container.querySelector(
         '[data-slot="wallet-primary-payment-button"]'

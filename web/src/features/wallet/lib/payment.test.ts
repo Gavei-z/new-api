@@ -25,6 +25,8 @@ import {
   isStripePayment,
   isWaffoPayment,
   isWaffoPancakePayment,
+  createStripeTopupPayload,
+  getPaymentLoadingKey,
 } from './payment'
 
 describe('payment type classification', () => {
@@ -34,6 +36,47 @@ describe('payment type classification', () => {
     assert.equal(isWaffoPancakePayment(PAYMENT_TYPES.WAFFO_PANCAKE), true)
     assert.equal(isWaffoPancakePayment(PAYMENT_TYPES.WAFFO), false)
     assert.equal(isStripePayment(PAYMENT_TYPES.STRIPE), true)
+  })
+})
+
+describe('Stripe checkout variants', () => {
+  test('keeps WeChat Pay on the Stripe accounting provider', () => {
+    const method = {
+      name: 'WeChat Pay',
+      type: PAYMENT_TYPES.STRIPE,
+      checkout_method: 'wechat_pay' as const,
+    }
+
+    assert.equal(getPaymentLoadingKey(method), 'stripe:wechat_pay')
+    assert.deepEqual(createStripeTopupPayload(5, 'wechat_pay'), {
+      amount: 5,
+      payment_method: 'stripe',
+      checkout_method: 'wechat_pay',
+    })
+  })
+
+  test('passes the selected Stripe checkout variant through confirmation', async () => {
+    let checkoutMethod: string | undefined
+    const success = await dispatchSelectedPayment(
+      {
+        name: 'WeChat Pay',
+        type: PAYMENT_TYPES.STRIPE,
+        checkout_method: 'wechat_pay',
+      },
+      5,
+      null,
+      {
+        regular: async (_amount, _paymentType, selectedCheckoutMethod) => {
+          checkoutMethod = selectedCheckoutMethod
+          return true
+        },
+        waffo: async () => false,
+        waffoPancake: async () => false,
+      }
+    )
+
+    assert.equal(success, true)
+    assert.equal(checkoutMethod, 'wechat_pay')
   })
 })
 

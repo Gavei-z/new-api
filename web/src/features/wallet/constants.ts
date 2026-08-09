@@ -38,6 +38,17 @@ export const PAYMENT_TYPES = {
   WAFFO_PANCAKE: 'waffo_pancake',
 } as const
 
+export const STRIPE_CHECKOUT_METHODS = {
+  STANDARD: 'standard',
+  WECHAT_PAY: 'wechat_pay',
+} as const
+
+// Hosted payment methods can finish asynchronously after the browser returns.
+// Keep the refresh bounded while covering the normal webhook delivery window.
+export const PAYMENT_RETURN_REFRESH_DELAYS_MS = [
+  0, 1500, 3500, 7000, 12_000, 20_000,
+] as const
+
 /**
  * Default payment type
  */
