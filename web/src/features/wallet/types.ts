@@ -26,6 +26,7 @@ For commercial licensing, please contact support@quantumnous.com
 export interface ApiResponse<T = unknown> {
   success?: boolean
   message?: string
+  code?: string
   data?: T
 }
 
@@ -34,13 +35,36 @@ export interface ApiResponse<T = unknown> {
  */
 export type TopupInfoResponse = ApiResponse<TopupInfo>
 export type RedemptionResponse = ApiResponse<number>
-export type AmountResponse = ApiResponse<string>
+export type AmountResponse = ApiResponse<string> & {
+  /** Optional authoritative metadata for a method-specific Stripe quote. */
+  quote?: unknown
+}
 export type PaymentResponse = ApiResponse<Record<string, unknown>> & {
   url?: string
 }
 export type StripePaymentResponse = ApiResponse<{ pay_link: string }>
 export type StripeCheckoutMethod = 'standard' | 'wechat_pay'
 export type PaymentCurrencyCode = 'USD' | 'CNY'
+
+export type StripeFxQuote = Readonly<{
+  /** Final amount to collect, expressed in the smallest CNY currency unit. */
+  pay_amount_minor: number
+  currency: 'CNY'
+  /** Exact decimal rate returned by the server; never recompute it in JS. */
+  exchange_rate: string
+  source: string
+  /** Asia/Shanghai pricing date in YYYY-MM-DD form. */
+  pricing_date: string
+  /** Optional source publication time as Unix seconds. */
+  source_published_at?: number
+  /** Opaque server revision that must accompany WeChat checkout creation. */
+  quote_version: string
+}>
+
+export type PaymentAmountQuote = Readonly<{
+  amount: number
+  stripeFxQuote?: StripeFxQuote
+}>
 export type AffiliateCodeResponse = ApiResponse<string>
 export type AffiliateTransferResponse = ApiResponse
 export type CreemPaymentResponse = ApiResponse<{ checkout_url: string }>
@@ -112,6 +136,7 @@ export type PaymentConfirmationSnapshot = Readonly<{
   paymentMethod: Readonly<PaymentMethod>
   checkoutMethod?: StripeCheckoutMethod
   currencyCode?: PaymentCurrencyCode
+  stripeFxQuote?: StripeFxQuote
   waffoMethodIndex: number | null
 }>
 
@@ -212,6 +237,8 @@ export interface StripePaymentRequest {
   payment_method: 'stripe'
   /** Server-allowlisted hosted Checkout variant */
   checkout_method: StripeCheckoutMethod
+  /** Required by the server for a WeChat quote; absent for standard checkout. */
+  quote_version?: string
 }
 
 /**

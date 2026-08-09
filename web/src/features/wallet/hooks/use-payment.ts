@@ -37,10 +37,12 @@ import {
   isWaffoPancakePayment,
   submitPaymentForm,
   createStripeTopupPayload,
+  parsePaymentAmountQuote,
 } from '../lib'
 import type {
   AmountRequest,
   AmountResponse,
+  PaymentAmountQuote,
   StripeCheckoutMethod,
 } from '../types'
 
@@ -64,15 +66,18 @@ const defaultPaymentAmountCalculators: PaymentAmountCalculators = {
   waffoPancake: calculateWaffoPancakeAmount,
 }
 
-export async function requestPaymentAmount(
+export type CheckoutQuoteResult =
+  | Readonly<{ status: 'success'; quote: PaymentAmountQuote }>
+  | Readonly<{ status: 'invalid' }>
+  | Readonly<{ status: 'superseded' }>
+
+async function requestPaymentAmountResponse(
   topupAmount: number,
   paymentType: string,
-  stripeCheckoutMethod: StripeCheckoutMethod = STRIPE_CHECKOUT_METHODS.STANDARD,
-  calculators: PaymentAmountCalculators = defaultPaymentAmountCalculators
-): Promise<number> {
-  if (!isIntegerTopupAmount(topupAmount)) {
-    return 0
-  }
+  stripeCheckoutMethod: StripeCheckoutMethod,
+  calculators: PaymentAmountCalculators
+): Promise<AmountResponse | null> {
+  if (!isIntegerTopupAmount(topupAmount)) return null
 
   let calculator = calculators.regular
   if (isStripePayment(paymentType)) {
@@ -89,11 +94,42 @@ export async function requestPaymentAmount(
   }
 
   const response = await calculator(request)
-  if (!isApiSuccess(response) || !response.data) {
-    return 0
-  }
+  return isApiSuccess(response) ? response : null
+}
 
-  return Number.parseFloat(response.data)
+export async function requestPaymentAmount(
+  topupAmount: number,
+  paymentType: string,
+  stripeCheckoutMethod: StripeCheckoutMethod = STRIPE_CHECKOUT_METHODS.STANDARD,
+  calculators: PaymentAmountCalculators = defaultPaymentAmountCalculators
+): Promise<number> {
+  const response = await requestPaymentAmountResponse(
+    topupAmount,
+    paymentType,
+    stripeCheckoutMethod,
+    calculators
+  )
+  if (!response || typeof response.data !== 'string') return 0
+
+  const parsedAmount = Number(response.data)
+  return Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : 0
+}
+
+export async function requestCheckoutQuote(
+  topupAmount: number,
+  paymentType: string,
+  stripeCheckoutMethod: StripeCheckoutMethod = STRIPE_CHECKOUT_METHODS.STANDARD,
+  calculators: PaymentAmountCalculators = defaultPaymentAmountCalculators
+): Promise<PaymentAmountQuote | null> {
+  const response = await requestPaymentAmountResponse(
+    topupAmount,
+    paymentType,
+    stripeCheckoutMethod,
+    calculators
+  )
+  if (!response) return null
+
+  return parsePaymentAmountQuote(response, stripeCheckoutMethod)
 }
 
 export function usePayment(
@@ -147,17 +183,25 @@ export function usePayment(
       paymentType: string,
       stripeCheckoutMethod: StripeCheckoutMethod = STRIPE_CHECKOUT_METHODS.STANDARD
     ) => {
-      amountRequestIdRef.current += 1
+      const requestId = ++amountRequestIdRef.current
       setCalculating(false)
       try {
-        return await requestPaymentAmount(
+        const quote = await requestCheckoutQuote(
           topupAmount,
           paymentType,
           stripeCheckoutMethod,
           calculators
         )
+        if (requestId !== amountRequestIdRef.current) {
+          return { status: 'superseded' } as const
+        }
+        if (!quote) return { status: 'invalid' } as const
+        return { status: 'success', quote } as const
       } catch {
-        return 0
+        if (requestId !== amountRequestIdRef.current) {
+          return { status: 'superseded' } as const
+        }
+        return { status: 'invalid' } as const
       }
     },
     [calculators]
@@ -174,7 +218,8 @@ export function usePayment(
     async (
       topupAmount: number,
       paymentType: string,
-      stripeCheckoutMethod?: StripeCheckoutMethod
+      stripeCheckoutMethod?: StripeCheckoutMethod,
+      quoteVersion?: string
     ) => {
       try {
         setProcessing(true)
@@ -190,7 +235,8 @@ export function usePayment(
           ? await requestStripePayment(
               createStripeTopupPayload(
                 topupAmount,
-                stripeCheckoutMethod ?? 'standard'
+                stripeCheckoutMethod ?? 'standard',
+                quoteVersion
               )
             )
           : await requestPayment({
@@ -199,7 +245,21 @@ export function usePayment(
             })
 
         if (!isApiSuccess(response)) {
-          toast.error(response.message || i18next.t('Payment request failed'))
+          if (response.code === 'stripe_fx_quote_expired') {
+            toast.error(
+              i18next.t(
+                'The exchange rate quote has expired. Please close this dialog and choose WeChat Pay again.'
+              )
+            )
+          } else if (response.code === 'stripe_fx_rate_unavailable') {
+            toast.error(
+              i18next.t(
+                'The exchange rate is temporarily unavailable. Please try again later.'
+              )
+            )
+          } else {
+            toast.error(response.message || i18next.t('Payment request failed'))
+          }
           return false
         }
 

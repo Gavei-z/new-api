@@ -16,7 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { StripeCheckoutMethod } from '@/features/wallet/types'
+import { parsePaymentAmountQuote } from '@/features/wallet/lib'
+import type {
+  AmountResponse,
+  PaymentAmountQuote,
+  StripeCheckoutMethod,
+} from '@/features/wallet/types'
 import { api } from '@/lib/api'
 
 import {
@@ -39,14 +44,18 @@ import type {
 } from './types'
 
 function unwrap<T>(response: {
-  data: { success?: boolean; data: T; message?: string }
+  data: { success?: boolean; data: T; message?: string; code?: string }
 }): T {
   const succeeded =
     response.data.success === true || response.data.message === 'success'
   if (!succeeded) {
     const dataMessage =
       typeof response.data.data === 'string' ? response.data.data : ''
-    throw new Error(dataMessage || response.data.message || 'Request failed')
+    const error: Error & { code?: string } = new Error(
+      dataMessage || response.data.message || 'Request failed'
+    )
+    if (response.data.code) error.code = response.data.code
+    throw error
   }
   return response.data.data
 }
@@ -112,16 +121,21 @@ export async function fundCurrentTeam(
 export async function calculateCurrentTeamStripeAmount(
   amount: number,
   checkoutMethod: StripeCheckoutMethod = 'standard'
-): Promise<string> {
-  return unwrap(
-    await api.post(
-      '/api/team/stripe/amount',
-      createTeamStripeAmountPayload(amount, checkoutMethod),
-      {
-        skipBusinessError: true,
-      } as Record<string, unknown>
-    )
+): Promise<PaymentAmountQuote> {
+  const response = await api.post(
+    '/api/team/stripe/amount',
+    createTeamStripeAmountPayload(amount, checkoutMethod),
+    {
+      skipBusinessError: true,
+    } as Record<string, unknown>
   )
+  const data = unwrap<string>(response)
+  const quote = parsePaymentAmountQuote(
+    { ...(response.data as AmountResponse), data },
+    checkoutMethod
+  )
+  if (!quote) throw new Error('Invalid Stripe quote response')
+  return quote
 }
 
 export async function requestCurrentTeamStripePayment(
@@ -130,7 +144,11 @@ export async function requestCurrentTeamStripePayment(
   return unwrap(
     await api.post(
       '/api/team/stripe/pay',
-      createTeamStripeTopupPayload(request.amount, request.checkoutMethod),
+      createTeamStripeTopupPayload(
+        request.amount,
+        request.checkoutMethod,
+        request.quoteVersion
+      ),
       {
         skipBusinessError: true,
       } as Record<string, unknown>

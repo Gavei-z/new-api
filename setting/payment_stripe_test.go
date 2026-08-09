@@ -61,17 +61,10 @@ func TestStripeWeChatPayRequiresExplicitEnvironmentEnablement(t *testing.T) {
 	assert.False(t, IsStripeWeChatPayEnabled())
 }
 
-func TestStripeWeChatCNYConfigurationIsEnvironmentManagedAndStrict(t *testing.T) {
-	t.Setenv("STRIPE_WECHAT_CNY_PRICE_ID", " price_cny_or_multicurrency ")
-	t.Setenv("STRIPE_WECHAT_CNY_UNIT_AMOUNT_MINOR", " 725 ")
+func TestStripeInlinePriceProductIsEnvironmentManaged(t *testing.T) {
+	t.Setenv("STRIPE_PRODUCT_ID", " prod_V1YSmjzB9abux1 ")
+	assert.Equal(t, "prod_V1YSmjzB9abux1", GetStripeProductId())
 
-	assert.Equal(t, "price_cny_or_multicurrency", GetStripeWeChatCNYPriceId())
-	assert.EqualValues(t, 725, GetStripeWeChatCNYUnitAmountMinor())
-
-	for _, invalid := range []string{"", "0", "-1", "7.25", "not-a-number", "9223372036854775808"} {
-		t.Run(invalid, func(t *testing.T) {
-			t.Setenv("STRIPE_WECHAT_CNY_UNIT_AMOUNT_MINOR", invalid)
-			assert.Zero(t, GetStripeWeChatCNYUnitAmountMinor())
-		})
-	}
+	t.Setenv("STRIPE_PRODUCT_ID", "")
+	assert.Empty(t, GetStripeProductId())
 }

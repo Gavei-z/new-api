@@ -74,6 +74,25 @@ function createDeferredAmountResponse() {
   return { promise, resolve }
 }
 
+function weChatAmountResponse(
+  data = '13.54',
+  quoteVersion = 'boc-fx-2026-08-09-v1'
+): AmountResponse {
+  return {
+    success: true,
+    data,
+    quote: {
+      pay_amount_minor: Math.round(Number(data) * 100),
+      currency: 'cny',
+      exchange_rate: '6.7655',
+      source: 'boc_spot_selling',
+      pricing_date: '2026-08-09',
+      source_published_at: 1_786_244_200,
+      quote_version: quoteVersion,
+    },
+  }
+}
+
 async function renderPaymentHook(calculators: PaymentAmountCalculators) {
   let state: PaymentHookState | undefined
   const container = document.createElement('div')
@@ -124,12 +143,14 @@ describe('payment quote race handling', () => {
       if (checkoutMethod === STRIPE_CHECKOUT_METHODS.STANDARD) {
         return delayedStandard.promise
       }
-      return { success: true, data: '14.40' }
+      return weChatAmountResponse()
     })
     const rendered = await renderPaymentHook(calculators)
 
     let standardPreview!: Promise<number>
-    let weChatQuote = 0
+    let weChatQuoteResult!: Awaited<
+      ReturnType<PaymentHookState['quotePaymentAmount']>
+    >
     await act(async () => {
       standardPreview = rendered
         .getState()
@@ -138,7 +159,7 @@ describe('payment quote race handling', () => {
           PAYMENT_TYPES.STRIPE,
           STRIPE_CHECKOUT_METHODS.STANDARD
         )
-      weChatQuote = await rendered
+      weChatQuoteResult = await rendered
         .getState()
         .quotePaymentAmount(
           2,
@@ -147,17 +168,20 @@ describe('payment quote race handling', () => {
         )
     })
 
-    assert.equal(weChatQuote, 14.4)
+    assert.equal(weChatQuoteResult.status, 'success')
+    assert.ok(weChatQuoteResult.status === 'success')
+    assert.equal(weChatQuoteResult.quote.amount, 13.54)
     assert.equal(rendered.getState().amount, 0)
     const confirmation = createPaymentConfirmationSnapshot(
       2,
-      weChatQuote,
+      weChatQuoteResult.quote.amount,
       {
         name: 'WeChat Pay',
         type: PAYMENT_TYPES.STRIPE,
         checkout_method: STRIPE_CHECKOUT_METHODS.WECHAT_PAY,
       },
-      null
+      null,
+      weChatQuoteResult.quote.stripeFxQuote
     )
 
     await act(async () => {
@@ -167,8 +191,12 @@ describe('payment quote race handling', () => {
 
     assert.equal(rendered.getState().amount, 0)
     assert.equal(confirmation.creditAmount, 2)
-    assert.equal(confirmation.quotedPaymentAmount, 14.4)
+    assert.equal(confirmation.quotedPaymentAmount, 13.54)
     assert.equal(confirmation.currencyCode, 'CNY')
+    assert.equal(
+      confirmation.stripeFxQuote?.quote_version,
+      'boc-fx-2026-08-09-v1'
+    )
     assert.equal(rendered.container.querySelector('output')?.textContent, '0')
 
     await act(async () => rendered.root.unmount())
@@ -207,6 +235,52 @@ describe('payment quote race handling', () => {
       await firstRequest
     })
     assert.equal(rendered.getState().amount, 5)
+
+    await act(async () => rendered.root.unmount())
+    rendered.container.remove()
+  })
+
+  test('a delayed checkout quote is marked superseded after a newer quote completes', async () => {
+    const delayedWeChatQuote = createDeferredAmountResponse()
+    const calculators = calculatorsWithStripe(async (request) => {
+      if (request.amount === 2) return delayedWeChatQuote.promise
+      return { success: true, data: '5.00' }
+    })
+    const rendered = await renderPaymentHook(calculators)
+
+    let firstQuote!: ReturnType<PaymentHookState['quotePaymentAmount']>
+    let latestQuote!: Awaited<
+      ReturnType<PaymentHookState['quotePaymentAmount']>
+    >
+    await act(async () => {
+      firstQuote = rendered
+        .getState()
+        .quotePaymentAmount(
+          2,
+          PAYMENT_TYPES.STRIPE,
+          STRIPE_CHECKOUT_METHODS.WECHAT_PAY
+        )
+      latestQuote = await rendered
+        .getState()
+        .quotePaymentAmount(
+          5,
+          PAYMENT_TYPES.STRIPE,
+          STRIPE_CHECKOUT_METHODS.STANDARD
+        )
+    })
+
+    assert.equal(latestQuote.status, 'success')
+    if (latestQuote.status === 'success') {
+      assert.equal(latestQuote.quote.amount, 5)
+    }
+
+    let staleQuote!: Awaited<typeof firstQuote>
+    await act(async () => {
+      delayedWeChatQuote.resolve(weChatAmountResponse())
+      staleQuote = await firstQuote
+    })
+
+    assert.equal(staleQuote.status, 'superseded')
 
     await act(async () => rendered.root.unmount())
     rendered.container.remove()

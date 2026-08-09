@@ -40,7 +40,12 @@ import {
   getPaymentIcon,
   isStripePayment,
 } from '../../lib'
-import type { PaymentMethod, StripeCheckoutMethod } from '../../types'
+import type {
+  PaymentMethod,
+  StripeCheckoutMethod,
+  StripeFxQuote,
+} from '../../types'
+import { StripeFxQuoteDetails } from '../stripe-fx-quote-details'
 
 interface PaymentConfirmDialogProps {
   open: boolean
@@ -55,6 +60,7 @@ interface PaymentConfirmDialogProps {
   usdExchangeRate?: number
   currencyCode?: 'USD' | 'CNY'
   stripeCheckoutMethod?: StripeCheckoutMethod
+  stripeFxQuote?: Readonly<StripeFxQuote>
 }
 
 export function PaymentConfirmDialog({
@@ -70,6 +76,7 @@ export function PaymentConfirmDialog({
   usdExchangeRate = 1,
   currencyCode,
   stripeCheckoutMethod,
+  stripeFxQuote,
 }: PaymentConfirmDialogProps) {
   const { t } = useTranslation()
   const hasDiscount = discountRate > 0 && discountRate < 1 && paymentAmount > 0
@@ -99,7 +106,10 @@ export function PaymentConfirmDialog({
     originalAmountText = `${formatUsdAmount(originalAmount)} USD`
     discountAmountText = `${formatUsdAmount(discountAmount)} USD`
   } else if (currencyCode === 'CNY') {
-    paymentAmountText = `${formatCnyAmount(paymentAmount)} CNY`
+    const cnyPaymentAmount = stripeFxQuote
+      ? stripeFxQuote.pay_amount_minor / 100
+      : paymentAmount
+    paymentAmountText = `${formatCnyAmount(cnyPaymentAmount)} CNY`
     originalAmountText = `${formatCnyAmount(originalAmount)} CNY`
     discountAmountText = `${formatCnyAmount(discountAmount)} CNY`
   }
@@ -194,6 +204,12 @@ export function PaymentConfirmDialog({
                   'WeChat checkout displays the final amount in CNY; your wallet is credited with the selected USD amount.'
                 )}
               </p>
+              {stripeFxQuote && (
+                <StripeFxQuoteDetails
+                  quote={stripeFxQuote}
+                  className='mt-3 rounded-lg bg-[#07C160]/5 p-3'
+                />
+              )}
             </div>
           )}
         </div>

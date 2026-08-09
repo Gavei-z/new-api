@@ -1,8 +1,8 @@
 package controller
 
 import (
-	"math"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
@@ -23,14 +23,15 @@ func isStripeTopUpEnabled() bool {
 }
 
 func isStripeWeChatPayEnabled() bool {
-	priceID := strings.TrimSpace(setting.GetStripeWeChatCNYPriceId())
-	unitAmountMinor := setting.GetStripeWeChatCNYUnitAmountMinor()
-	return isStripeTopUpEnabled() &&
-		setting.IsStripeWeChatPayEnabled() &&
-		priceID != "" &&
-		len(priceID) <= 255 &&
-		unitAmountMinor > 0 &&
-		unitAmountMinor <= math.MaxInt64/model.StripeMaximumTopUpUSD
+	productID := strings.TrimSpace(setting.GetStripeProductId())
+	if !isStripeTopUpEnabled() ||
+		!setting.IsStripeWeChatPayEnabled() ||
+		productID == "" ||
+		len(productID) > 255 {
+		return false
+	}
+	_, err := model.FindEffectiveStripeFXDailyRate(time.Now())
+	return err == nil
 }
 
 func isStripeWebhookConfigured() bool {

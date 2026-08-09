@@ -207,6 +207,7 @@ export function Wallet(props: WalletProps) {
 
   // Handle preset selection
   const handleSelectPreset = (preset: PresetAmount) => {
+    setPaymentLoading(null)
     setTopupAmount(preset.value)
     setSelectedPreset(preset.value)
     calculatePaymentAmount(preset.value, getCurrentPaymentType())
@@ -214,6 +215,7 @@ export function Wallet(props: WalletProps) {
 
   // Handle topup amount change
   const handleTopupAmountChange = (amount: number) => {
+    setPaymentLoading(null)
     setTopupAmount(amount)
     setSelectedPreset(null)
     if (!isIntegerTopupAmount(amount) || amount <= 0) {
@@ -242,6 +244,7 @@ export function Wallet(props: WalletProps) {
     setSelectedPaymentMethod(method)
     setPaymentLoading(getPaymentLoadingKey(method))
     const quotedCreditAmount = topupAmount
+    let quoteWasSuperseded = false
 
     try {
       // Validate minimum topup
@@ -263,26 +266,31 @@ export function Wallet(props: WalletProps) {
       }
 
       // Quote the exact checkout variant before showing monetary details.
-      const quotedAmount = await quotePaymentAmount(
+      const quoteResult = await quotePaymentAmount(
         quotedCreditAmount,
         method.type,
         method.checkout_method
       )
-      if (!Number.isFinite(quotedAmount) || quotedAmount <= 0) {
+      if (quoteResult.status === 'superseded') {
+        quoteWasSuperseded = true
+        return
+      }
+      if (quoteResult.status === 'invalid') {
         toast.error(t('Unable to verify this amount. Please try again.'))
         return
       }
       setConfirmationSnapshot(
         createPaymentConfirmationSnapshot(
           quotedCreditAmount,
-          quotedAmount,
+          quoteResult.quote.amount,
           method,
-          null
+          null,
+          quoteResult.quote.stripeFxQuote
         )
       )
       setConfirmDialogOpen(true)
     } finally {
-      setPaymentLoading(null)
+      if (!quoteWasSuperseded) setPaymentLoading(null)
     }
   }
 
@@ -374,27 +382,32 @@ export function Wallet(props: WalletProps) {
     setSelectedPaymentMethod(paymentMethod)
     setPaymentLoading(loadingKey)
     const quotedCreditAmount = topupAmount
+    let quoteWasSuperseded = false
 
     try {
-      const quotedAmount = await quotePaymentAmount(
+      const quoteResult = await quotePaymentAmount(
         quotedCreditAmount,
         PAYMENT_TYPES.WAFFO
       )
-      if (!Number.isFinite(quotedAmount) || quotedAmount <= 0) {
+      if (quoteResult.status === 'superseded') {
+        quoteWasSuperseded = true
+        return
+      }
+      if (quoteResult.status === 'invalid') {
         toast.error(t('Unable to verify this amount. Please try again.'))
         return
       }
       setConfirmationSnapshot(
         createPaymentConfirmationSnapshot(
           quotedCreditAmount,
-          quotedAmount,
+          quoteResult.quote.amount,
           paymentMethod,
           index
         )
       )
       setConfirmDialogOpen(true)
     } finally {
-      setPaymentLoading(null)
+      if (!quoteWasSuperseded) setPaymentLoading(null)
     }
   }
 
@@ -516,6 +529,7 @@ export function Wallet(props: WalletProps) {
         usdExchangeRate={effectiveUsdExchangeRate}
         currencyCode={confirmationSnapshot?.currencyCode}
         stripeCheckoutMethod={confirmationSnapshot?.checkoutMethod}
+        stripeFxQuote={confirmationSnapshot?.stripeFxQuote}
       />
 
       <TransferDialog

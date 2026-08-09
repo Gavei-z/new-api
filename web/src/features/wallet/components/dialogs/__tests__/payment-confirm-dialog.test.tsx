@@ -22,7 +22,7 @@ import { after, describe, test } from 'node:test'
 import { Window } from 'happy-dom'
 
 import englishMessages from '../../../../../i18n/locales/en.json'
-import type { PaymentMethod } from '../../../types'
+import type { PaymentMethod, StripeFxQuote } from '../../../types'
 
 const domWindow = new Window()
 const domGlobals = [
@@ -63,7 +63,11 @@ const reactTestGlobals = globalThis as typeof globalThis & {
 }
 reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 
-async function renderDialog(paymentMethod: PaymentMethod, paymentAmount = 2) {
+async function renderDialog(
+  paymentMethod: PaymentMethod,
+  paymentAmount = 2,
+  stripeFxQuote?: StripeFxQuote
+) {
   const i18n = createInstance()
   await i18n.use(initReactI18next).init({
     lng: 'en',
@@ -95,6 +99,7 @@ async function renderDialog(paymentMethod: PaymentMethod, paymentAmount = 2) {
           processing={false}
           currencyCode={currencyCode}
           stripeCheckoutMethod={paymentMethod.checkout_method}
+          stripeFxQuote={stripeFxQuote}
         />
       </I18nextProvider>
     )
@@ -149,14 +154,23 @@ describe('payment confirmation provider details', () => {
     assert.equal(hasProvider, true)
   })
 
-  test('shows fixed CNY payment separately from the selected USD credit', async () => {
+  test('shows the daily CNY quote separately from the selected USD credit', async () => {
     const rendered = await renderDialog(
       {
         name: 'WeChat Pay',
         type: 'stripe',
         checkout_method: 'wechat_pay',
       },
-      14.4
+      13.54,
+      {
+        pay_amount_minor: 1354,
+        currency: 'CNY',
+        exchange_rate: '6.7655',
+        source: 'boc_spot_selling',
+        pricing_date: '2026-08-09',
+        source_published_at: 1_786_244_200,
+        quote_version: 'boc-fx-2026-08-09-v1',
+      }
     )
     const dialog = document.body.querySelector<HTMLElement>(
       '[data-slot="alert-dialog-content"]'
@@ -174,8 +188,16 @@ describe('payment confirmation provider details', () => {
     assert.equal(dialog.textContent?.includes('USD credit amount'), true)
     assert.equal(dialog.textContent?.includes('$2.00 USD'), true)
     assert.equal(dialog.textContent?.includes('You Pay'), true)
-    assert.equal(dialog.textContent?.includes('¥14.40 CNY'), true)
-    assert.equal(dialog.textContent?.includes('$14.40 USD'), false)
+    assert.equal(dialog.textContent?.includes('¥13.54 CNY'), true)
+    assert.equal(dialog.textContent?.includes('$13.54 USD'), false)
+    assert.equal(dialog.textContent?.includes('1 USD = ¥6.7655 CNY'), true)
+    assert.equal(
+      dialog.textContent?.includes(
+        'Exchange rate source: Bank of China spot exchange selling rate'
+      ),
+      true
+    )
+    assert.equal(dialog.textContent?.includes('Pricing date: 2026-08-09'), true)
     const quote = dialog.querySelector<HTMLElement>(
       '[data-slot="payment-confirm-quote"]'
     )

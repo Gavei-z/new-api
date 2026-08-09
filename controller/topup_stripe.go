@@ -45,6 +45,7 @@ type StripePayRequest struct {
 	Amount         int64  `json:"amount"`
 	PaymentMethod  string `json:"payment_method"`
 	CheckoutMethod string `json:"checkout_method,omitempty"`
+	QuoteVersion   string `json:"quote_version,omitempty"`
 	SuccessURL     string `json:"success_url,omitempty"`
 	CancelURL      string `json:"cancel_url,omitempty"`
 }
@@ -53,10 +54,30 @@ type StripeAdaptor struct{}
 
 type stripeCheckoutTerms struct {
 	CheckoutMethod      string
+	PricingMode         string
 	PriceID             string
+	ProductID           string
 	Currency            string
+	LineItemQuantity    int64
 	UnitAmountMinor     int64
 	ExpectedAmountMinor int64
+	FXRateID            int64
+	FXRateE4            int64
+	FXRate              string
+	FXPricingDate       string
+	FXSource            string
+	FXSourcePublishedAt int64
+	FXQuoteVersion      string
+}
+
+type stripeFXQuoteResponse struct {
+	PayAmountMinor    int64  `json:"pay_amount_minor"`
+	Currency          string `json:"currency"`
+	ExchangeRate      string `json:"exchange_rate"`
+	Source            string `json:"source"`
+	PricingDate       string `json:"pricing_date"`
+	SourcePublishedAt int64  `json:"source_published_at"`
+	QuoteVersion      string `json:"quote_version"`
 }
 
 func stripeQuotaForAmount(amount int64) (int64, error) {
@@ -113,29 +134,69 @@ func requireStripeCheckoutMethodEnabled(checkoutMethod string) error {
 	return nil
 }
 
-func resolveStripeCheckoutTerms(checkoutMethod string, amount int64) (stripeCheckoutTerms, error) {
+func resolveStripeCheckoutTerms(
+	checkoutMethod string,
+	amount int64,
+	quoteVersion string,
+	requireQuoteVersion bool,
+) (stripeCheckoutTerms, error) {
 	checkoutMethod, err := normalizeStripeCheckoutMethod(checkoutMethod)
 	if err != nil {
 		return stripeCheckoutTerms{}, err
 	}
 	terms := stripeCheckoutTerms{
-		CheckoutMethod:  checkoutMethod,
-		PriceID:         setting.GetStripePriceId(),
-		Currency:        "usd",
-		UnitAmountMinor: 100,
+		CheckoutMethod:      checkoutMethod,
+		PricingMode:         model.StripePricingModePriceId,
+		PriceID:             setting.GetStripePriceId(),
+		Currency:            "usd",
+		LineItemQuantity:    amount,
+		UnitAmountMinor:     100,
+		ExpectedAmountMinor: amount * 100,
 	}
-	if checkoutMethod == stripeCheckoutMethodWeChatPay {
-		terms.PriceID = setting.GetStripeWeChatCNYPriceId()
-		terms.Currency = "cny"
-		terms.UnitAmountMinor = setting.GetStripeWeChatCNYUnitAmountMinor()
+	if checkoutMethod == stripeCheckoutMethodStandard {
+		if quoteVersion != "" {
+			return stripeCheckoutTerms{}, errors.New("standard Stripe Checkout does not accept an FX quote")
+		}
+		if strings.TrimSpace(terms.PriceID) == "" || len(terms.PriceID) > 255 {
+			return stripeCheckoutTerms{}, errors.New("Stripe checkout pricing is unavailable")
+		}
+		return terms, nil
 	}
-	if strings.TrimSpace(terms.PriceID) == "" || len(terms.PriceID) > 255 || terms.UnitAmountMinor <= 0 {
+
+	var rate *model.StripeFXDailyRate
+	if requireQuoteVersion {
+		if quoteVersion == "" {
+			return stripeCheckoutTerms{}, model.ErrStripeFXQuoteExpired
+		}
+		rate, err = model.FindStripeFXDailyRateByQuoteVersion(quoteVersion, time.Now())
+	} else {
+		rate, err = model.FindEffectiveStripeFXDailyRate(time.Now())
+	}
+	if err != nil {
+		return stripeCheckoutTerms{}, err
+	}
+	productID := strings.TrimSpace(setting.GetStripeProductId())
+	if productID == "" || len(productID) > 255 {
 		return stripeCheckoutTerms{}, errors.New("Stripe checkout pricing is unavailable")
 	}
-	if amount <= 0 || amount > math.MaxInt64/terms.UnitAmountMinor {
-		return stripeCheckoutTerms{}, errors.New("Stripe checkout amount is out of range")
+	expectedAmountMinor, err := model.CalculateStripeFXAmountMinor(amount, rate.RateE4)
+	if err != nil {
+		return stripeCheckoutTerms{}, err
 	}
-	terms.ExpectedAmountMinor = amount * terms.UnitAmountMinor
+	terms.PricingMode = model.StripePricingModeInline
+	terms.PriceID = ""
+	terms.ProductID = productID
+	terms.Currency = "cny"
+	terms.LineItemQuantity = 1
+	terms.UnitAmountMinor = expectedAmountMinor
+	terms.ExpectedAmountMinor = expectedAmountMinor
+	terms.FXRateID = rate.Id
+	terms.FXRateE4 = rate.RateE4
+	terms.FXRate = rate.RateString()
+	terms.FXPricingDate = rate.PricingDate
+	terms.FXSource = rate.Source
+	terms.FXSourcePublishedAt = rate.SourcePublishedAt
+	terms.FXQuoteVersion = rate.QuoteVersion()
 	return terms, nil
 }
 
@@ -160,6 +221,26 @@ func writeStripeRequestError(c *gin.Context, message string) {
 	c.JSON(http.StatusOK, gin.H{"message": "error", "data": message})
 }
 
+func writeStripeFXRequestError(c *gin.Context, err error) bool {
+	if errors.Is(err, model.ErrStripeFXQuoteExpired) {
+		c.JSON(http.StatusOK, gin.H{
+			"message": "error",
+			"code":    "stripe_fx_quote_expired",
+			"data":    "WeChat Pay quote expired; request a new quote",
+		})
+		return true
+	}
+	if errors.Is(err, model.ErrStripeFXRateUnavailable) {
+		c.JSON(http.StatusOK, gin.H{
+			"message": "error",
+			"code":    "stripe_fx_rate_unavailable",
+			"data":    "WeChat Pay exchange rate is temporarily unavailable",
+		})
+		return true
+	}
+	return false
+}
+
 func (*StripeAdaptor) RequestAmount(c *gin.Context, req *StripePayRequest, targetType string) {
 	if !isStripeTopUpEnabled() {
 		writeStripeRequestError(c, "Stripe payment is unavailable")
@@ -174,7 +255,7 @@ func (*StripeAdaptor) RequestAmount(c *gin.Context, req *StripePayRequest, targe
 		writeStripeRequestError(c, err.Error())
 		return
 	}
-	terms, err := resolveStripeCheckoutTerms(checkoutMethod, req.Amount)
+	terms, err := resolveStripeCheckoutTerms(checkoutMethod, req.Amount, "", false)
 	if err != nil {
 		writeStripeRequestError(c, err.Error())
 		return
@@ -183,10 +264,22 @@ func (*StripeAdaptor) RequestAmount(c *gin.Context, req *StripePayRequest, targe
 		writeStripeRequestError(c, err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"message": "success",
 		"data":    formatStripeMinorAmount(terms.ExpectedAmountMinor),
-	})
+	}
+	if checkoutMethod == stripeCheckoutMethodWeChatPay {
+		response["quote"] = stripeFXQuoteResponse{
+			PayAmountMinor:    terms.ExpectedAmountMinor,
+			Currency:          "CNY",
+			ExchangeRate:      terms.FXRate,
+			Source:            terms.FXSource,
+			PricingDate:       terms.FXPricingDate,
+			SourcePublishedAt: terms.FXSourcePublishedAt,
+			QuoteVersion:      terms.FXQuoteVersion,
+		}
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest, targetType string) {
@@ -211,9 +304,11 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest, targetTy
 		writeStripeRequestError(c, err.Error())
 		return
 	}
-	terms, err := resolveStripeCheckoutTerms(checkoutMethod, req.Amount)
+	terms, err := resolveStripeCheckoutTerms(checkoutMethod, req.Amount, req.QuoteVersion, true)
 	if err != nil {
-		writeStripeRequestError(c, err.Error())
+		if !writeStripeFXRequestError(c, err) {
+			writeStripeRequestError(c, err.Error())
+		}
 		return
 	}
 	if req.SuccessURL != "" && common.ValidateRedirectURL(req.SuccessURL) != nil {
@@ -252,14 +347,25 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest, targetTy
 		FundingTarget:           targetType,
 		FundingTargetId:         targetID,
 		StripeCheckoutMethod:    terms.CheckoutMethod,
+		StripePricingMode:       terms.PricingMode,
 		StripePriceId:           terms.PriceID,
+		StripeProductId:         terms.ProductID,
+		StripeLineItemQuantity:  terms.LineItemQuantity,
 		ExpectedUnitAmountMinor: terms.UnitAmountMinor,
 		ExpectedAmountMinor:     terms.ExpectedAmountMinor,
 		ExpectedCurrency:        terms.Currency,
 		ExpectedLivemode:        expectedLivemode,
 		ExpectedQuota:           expectedQuota,
+		StripeFXRateId:          terms.FXRateID,
+		StripeFXRateE4:          terms.FXRateE4,
+		StripeFXPricingDate:     terms.FXPricingDate,
+		StripeFXSource:          terms.FXSource,
+		StripeFXPublishedAt:     terms.FXSourcePublishedAt,
 	}
 	if err := model.InsertStripeTopUpOrder(topUp); err != nil {
+		if writeStripeFXRequestError(c, err) {
+			return
+		}
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Stripe order creation failed trade_no=%s error=%q", referenceID, err.Error()))
 		writeStripeRequestError(c, "failed to create payment order")
 		return
@@ -762,20 +868,39 @@ func createStripeCheckoutSession(
 		return nil, err
 	}
 	if normalizedCheckoutMethod != terms.CheckoutMethod ||
-		strings.TrimSpace(terms.PriceID) == "" ||
-		len(terms.PriceID) > 255 ||
 		terms.UnitAmountMinor <= 0 ||
-		amount <= 0 ||
-		amount > math.MaxInt64/terms.UnitAmountMinor ||
-		terms.ExpectedAmountMinor != amount*terms.UnitAmountMinor {
+		terms.ExpectedAmountMinor <= 0 ||
+		terms.LineItemQuantity <= 0 ||
+		amount <= 0 {
 		return nil, errors.New("invalid Stripe Checkout terms")
 	}
 	if terms.CheckoutMethod == stripeCheckoutMethodStandard {
-		if terms.Currency != "usd" || terms.UnitAmountMinor != 100 {
+		if terms.PricingMode != model.StripePricingModePriceId ||
+			strings.TrimSpace(terms.PriceID) == "" ||
+			len(terms.PriceID) > 255 ||
+			strings.TrimSpace(terms.ProductID) != "" ||
+			terms.Currency != "usd" ||
+			terms.UnitAmountMinor != 100 ||
+			terms.LineItemQuantity != amount ||
+			amount > math.MaxInt64/terms.UnitAmountMinor ||
+			terms.ExpectedAmountMinor != amount*terms.UnitAmountMinor {
 			return nil, errors.New("invalid standard Stripe Checkout terms")
 		}
-	} else if terms.Currency != "cny" {
-		return nil, errors.New("invalid WeChat Pay Checkout terms")
+	} else {
+		expectedAmountMinor, amountErr := model.CalculateStripeFXAmountMinor(amount, terms.FXRateE4)
+		if amountErr != nil ||
+			terms.PricingMode != model.StripePricingModeInline ||
+			strings.TrimSpace(terms.PriceID) != "" ||
+			strings.TrimSpace(terms.ProductID) == "" ||
+			len(terms.ProductID) > 255 ||
+			terms.Currency != "cny" ||
+			terms.LineItemQuantity != 1 ||
+			terms.UnitAmountMinor != expectedAmountMinor ||
+			terms.ExpectedAmountMinor != expectedAmountMinor ||
+			terms.FXRateID <= 0 ||
+			terms.FXQuoteVersion == "" {
+			return nil, errors.New("invalid WeChat Pay Checkout terms")
+		}
 	}
 
 	secret := setting.GetStripeApiSecret()
@@ -784,16 +909,24 @@ func createStripeCheckoutSession(
 	}
 	stripe.Key = secret
 
+	lineItem := &stripe.CheckoutSessionLineItemParams{
+		Price:    stripe.String(terms.PriceID),
+		Quantity: stripe.Int64(terms.LineItemQuantity),
+	}
+	if terms.CheckoutMethod == stripeCheckoutMethodWeChatPay {
+		lineItem.Price = nil
+		lineItem.PriceData = &stripe.CheckoutSessionLineItemPriceDataParams{
+			Currency:   stripe.String(terms.Currency),
+			Product:    stripe.String(terms.ProductID),
+			UnitAmount: stripe.Int64(terms.UnitAmountMinor),
+		}
+	}
+
 	params := &stripe.CheckoutSessionParams{
-		ClientReferenceID: stripe.String(referenceID),
-		SuccessURL:        stripe.String(successURL),
-		CancelURL:         stripe.String(cancelURL),
-		LineItems: []*stripe.CheckoutSessionLineItemParams{
-			{
-				Price:    stripe.String(terms.PriceID),
-				Quantity: stripe.Int64(amount),
-			},
-		},
+		ClientReferenceID:   stripe.String(referenceID),
+		SuccessURL:          stripe.String(successURL),
+		CancelURL:           stripe.String(cancelURL),
+		LineItems:           []*stripe.CheckoutSessionLineItemParams{lineItem},
 		Mode:                stripe.String(string(stripe.CheckoutSessionModePayment)),
 		AllowPromotionCodes: stripe.Bool(false),
 		PaymentIntentData: &stripe.CheckoutSessionPaymentIntentDataParams{
@@ -808,6 +941,11 @@ func createStripeCheckoutSession(
 		},
 	}
 	if terms.CheckoutMethod == stripeCheckoutMethodWeChatPay {
+		params.AdaptivePricing = &stripe.CheckoutSessionAdaptivePricingParams{
+			Enabled: stripe.Bool(false),
+		}
+		params.Metadata["fx_quote_version"] = terms.FXQuoteVersion
+		params.PaymentIntentData.Metadata["fx_quote_version"] = terms.FXQuoteVersion
 		params.Currency = stripe.String(terms.Currency)
 		params.PaymentMethodTypes = []*string{
 			stripe.String(string(stripe.PaymentMethodTypeWeChatPay)),
@@ -842,7 +980,7 @@ func genStripeLink(referenceID string, customerID string, email string, amount i
 	if successURL == "" || cancelURL == "" {
 		successURL, cancelURL = stripeReturnURLs(model.StripeFundingTargetUser, successURL, cancelURL)
 	}
-	terms, err := resolveStripeCheckoutTerms(stripeCheckoutMethodStandard, amount)
+	terms, err := resolveStripeCheckoutTerms(stripeCheckoutMethodStandard, amount, "", false)
 	if err != nil {
 		return "", err
 	}

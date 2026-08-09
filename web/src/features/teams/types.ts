@@ -136,6 +136,7 @@ export type TeamStripeTopupPayload = {
   amount: number
   payment_method: 'stripe'
   checkout_method: StripeCheckoutMethod
+  quote_version?: string
 }
 
 export type TeamStripeAmountPayload = {
@@ -146,6 +147,7 @@ export type TeamStripeAmountPayload = {
 export type TeamStripeCheckoutRequest = {
   amount: number
   checkoutMethod: StripeCheckoutMethod
+  quoteVersion?: string
 }
 
 export type TeamStripeCheckout = {

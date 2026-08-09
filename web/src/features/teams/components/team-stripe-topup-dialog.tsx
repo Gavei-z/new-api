@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CreditCard, Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { StripeFxQuoteDetails } from '@/features/wallet/components/stripe-fx-quote-details'
 import {
   PAYMENT_TYPES,
   STRIPE_CHECKOUT_METHODS,
@@ -52,7 +53,7 @@ import {
   calculateCurrentTeamStripeAmount,
   requestCurrentTeamStripePayment,
 } from '../api'
-import { getErrorMessage } from '../lib'
+import { getErrorCode, getErrorMessage } from '../lib'
 
 interface TeamStripeTopupDialogProps {
   open: boolean
@@ -62,6 +63,7 @@ interface TeamStripeTopupDialogProps {
 
 export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const bounds = useMemo(
     () => getStripeTopupBounds(props.topupInfo),
     [props.topupInfo]
@@ -118,7 +120,35 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
       }
       window.location.assign(checkout.pay_link)
     },
-    onError: (error) => {
+    onError: async (error, variables) => {
+      const errorCode = getErrorCode(error)
+      if (errorCode === 'stripe_fx_quote_expired') {
+        toast.error(
+          t(
+            'The exchange rate quote expired. We are refreshing the CNY amount; please review it before trying again.'
+          )
+        )
+        if (variables.checkoutMethod === STRIPE_CHECKOUT_METHODS.WECHAT_PAY) {
+          await queryClient.invalidateQueries({
+            queryKey: [
+              'team-stripe-amount',
+              variables.amount,
+              STRIPE_CHECKOUT_METHODS.WECHAT_PAY,
+            ],
+            exact: true,
+            refetchType: 'active',
+          })
+        }
+        return
+      }
+      if (errorCode === 'stripe_fx_rate_unavailable') {
+        toast.error(
+          t(
+            'The exchange rate is temporarily unavailable. Please try again later.'
+          )
+        )
+        return
+      }
       toast.error(getErrorMessage(error, t('Payment request failed')))
     },
   })
@@ -138,8 +168,11 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
     validationMessage = t('Enter a valid USD amount.')
   }
 
-  const standardQuotedAmount = Number(standardAmountQuery.data)
-  const weChatQuotedAmount = Number(weChatAmountQuery.data)
+  const standardQuotedAmount = standardAmountQuery.data?.amount ?? 0
+  const weChatFxQuote = weChatAmountQuery.data?.stripeFxQuote
+  const weChatQuotedAmount = weChatFxQuote
+    ? weChatFxQuote.pay_amount_minor / 100
+    : 0
   const hasValidStandardQuote =
     standardAmountQuery.isSuccess &&
     !standardAmountQuery.isFetching &&
@@ -149,7 +182,8 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
     weChatAmountQuery.isSuccess &&
     !weChatAmountQuery.isFetching &&
     Number.isFinite(weChatQuotedAmount) &&
-    weChatQuotedAmount > 0
+    weChatQuotedAmount > 0 &&
+    !!weChatFxQuote?.quote_version
   const canSubmitBase =
     validation === null &&
     !checkoutMutation.isPending &&
@@ -166,7 +200,14 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
         ? canSubmitWeChat
         : canSubmitStandard
     if (!canSubmit) return
-    checkoutMutation.mutate({ amount, checkoutMethod })
+    checkoutMutation.mutate({
+      amount,
+      checkoutMethod,
+      quoteVersion:
+        checkoutMethod === STRIPE_CHECKOUT_METHODS.WECHAT_PAY
+          ? weChatFxQuote?.quote_version
+          : undefined,
+    })
   }
 
   return (
@@ -301,11 +342,19 @@ export function TeamStripeTopupDialog(props: TeamStripeTopupDialogProps) {
           </div>
 
           {props.topupInfo?.enable_stripe_wechat_pay && (
-            <p className='text-muted-foreground text-xs leading-5'>
-              {t(
-                'WeChat checkout displays the final amount in CNY; your wallet is credited with the selected USD amount.'
+            <div className='space-y-3'>
+              <p className='text-muted-foreground text-xs leading-5'>
+                {t(
+                  'WeChat checkout displays the final amount in CNY; your wallet is credited with the selected USD amount.'
+                )}
+              </p>
+              {weChatFxQuote && (
+                <StripeFxQuoteDetails
+                  quote={weChatFxQuote}
+                  className='rounded-lg bg-[#07C160]/5 p-3'
+                />
               )}
-            </p>
+            </div>
           )}
 
           {standardAmountQuery.isError && validation === null && (

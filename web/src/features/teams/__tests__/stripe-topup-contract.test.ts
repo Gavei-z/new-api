@@ -26,12 +26,17 @@ import {
 
 describe('team Stripe top-up target contract', () => {
   test('sends the allowlisted checkout method while the server derives the team', () => {
-    const payload = createTeamStripeTopupPayload(50, 'wechat_pay')
+    const payload = createTeamStripeTopupPayload(
+      50,
+      'wechat_pay',
+      'boc-fx-2026-08-09-v1'
+    )
 
     assert.deepEqual(payload, {
       amount: 50,
       payment_method: 'stripe',
       checkout_method: 'wechat_pay',
+      quote_version: 'boc-fx-2026-08-09-v1',
     })
     assert.equal('team_id' in payload, false)
     assert.equal('user_id' in payload, false)

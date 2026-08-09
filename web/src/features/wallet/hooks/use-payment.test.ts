@@ -20,7 +20,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import { PAYMENT_TYPES, STRIPE_CHECKOUT_METHODS } from '../constants'
-import { requestPaymentAmount } from './use-payment'
+import { requestCheckoutQuote, requestPaymentAmount } from './use-payment'
 
 describe('payment amount routing', () => {
   test('uses the dedicated Waffo amount calculator', async () => {
@@ -125,5 +125,52 @@ describe('payment amount routing', () => {
       { amount: 2, checkout_method: 'standard' },
       { amount: 2, checkout_method: 'wechat_pay' },
     ])
+  })
+
+  test('requires and normalizes authoritative metadata for a WeChat checkout quote', async () => {
+    const quote = await requestCheckoutQuote(
+      2,
+      PAYMENT_TYPES.STRIPE,
+      STRIPE_CHECKOUT_METHODS.WECHAT_PAY,
+      {
+        regular: async () => ({ success: true, data: '1' }),
+        stripe: async () => ({
+          success: true,
+          data: '13.54',
+          quote: {
+            pay_amount_minor: 1354,
+            currency: 'cny',
+            exchange_rate: '6.7655',
+            source: 'boc_spot_selling',
+            pricing_date: '2026-08-09',
+            source_published_at: 1_786_244_200,
+            quote_version: 'boc-fx-2026-08-09-v1',
+          },
+        }),
+        waffo: async () => ({ success: true, data: '1' }),
+        waffoPancake: async () => ({ success: true, data: '1' }),
+      }
+    )
+
+    assert.equal(quote?.amount, 13.54)
+    assert.equal(quote?.stripeFxQuote?.currency, 'CNY')
+    assert.equal(quote?.stripeFxQuote?.exchange_rate, '6.7655')
+    assert.equal(quote?.stripeFxQuote?.quote_version, 'boc-fx-2026-08-09-v1')
+  })
+
+  test('rejects a WeChat quote when metadata is absent', async () => {
+    const quote = await requestCheckoutQuote(
+      2,
+      PAYMENT_TYPES.STRIPE,
+      STRIPE_CHECKOUT_METHODS.WECHAT_PAY,
+      {
+        regular: async () => ({ success: true, data: '1' }),
+        stripe: async () => ({ success: true, data: '13.54' }),
+        waffo: async () => ({ success: true, data: '1' }),
+        waffoPancake: async () => ({ success: true, data: '1' }),
+      }
+    )
+
+    assert.equal(quote, null)
   })
 })

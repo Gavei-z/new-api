@@ -18,6 +18,8 @@ func setupStripeTopUpTestDB(t *testing.T) *gorm.DB {
 	db := setupTeamTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&TopUp{},
+		&StripeFXDailyRate{},
+		&StripeFXRateHead{},
 		&StripePaymentIntentLink{},
 		&StripeAdjustmentInbox{},
 	))
@@ -28,11 +30,64 @@ func TestStripeTopUpCheckoutSnapshotColumnsAutoMigrateSQLite(t *testing.T) {
 	db := setupStripeTopUpTestDB(t)
 	for _, column := range []string{
 		"stripe_checkout_method",
+		"stripe_pricing_mode",
 		"stripe_price_id",
+		"stripe_product_id",
+		"stripe_line_item_quantity",
 		"expected_unit_amount_minor",
+		"stripe_fx_rate_id",
+		"stripe_fx_rate_e4",
+		"stripe_fx_pricing_date",
+		"stripe_fx_source",
+		"stripe_fx_published_at",
 	} {
 		assert.True(t, db.Migrator().HasColumn(&TopUp{}, column), column)
 	}
+}
+
+func TestCalculateStripeFXAmountMinorRoundsTheWholeOrderUpOnce(t *testing.T) {
+	tests := []struct {
+		name       string
+		usdAmount  int64
+		rateE4     int64
+		wantAmount int64
+		wantError  bool
+	}{
+		{name: "two dollar minimum", usdAmount: 2, rateE4: 67_655, wantAmount: 1_354},
+		{name: "fifty dollars", usdAmount: 50, rateE4: 67_655, wantAmount: 33_828},
+		{name: "maximum topup", usdAmount: 50_000, rateE4: 67_655, wantAmount: 33_827_500},
+		{name: "invalid rate", usdAmount: 2, rateE4: 0, wantError: true},
+		{name: "overflow", usdAmount: math.MaxInt64, rateE4: 67_655, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			amount, err := CalculateStripeFXAmountMinor(test.usdAmount, test.rateE4)
+			if test.wantError {
+				require.Error(t, err)
+				assert.Zero(t, amount)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.wantAmount, amount)
+		})
+	}
+}
+
+func insertStripeFXDailyRateTest(t *testing.T, rateE4 int64) *StripeFXDailyRate {
+	t.Helper()
+	now := time.Now()
+	rate, err := CreateStripeFXDailyRate(&StripeFXDailyRate{
+		PricingDate:       StripeFXPricingDate(now),
+		Source:            StripeFXSourceBOCSpotSelling,
+		BaseCurrency:      StripeFXBaseCurrencyUSD,
+		QuoteCurrency:     StripeFXQuoteCurrencyCNY,
+		RateE4:            rateE4,
+		SourcePublishedAt: now.Add(-time.Minute).Unix(),
+		FetchedAt:         now.Unix(),
+		SourceURL:         StripeFXBOCSourceURL,
+	})
+	require.NoError(t, err)
+	return rate
 }
 
 func TestStripeLegacyUSDOrderWithoutCheckoutSnapshotsStillCompletes(t *testing.T) {
@@ -159,6 +214,51 @@ func insertStripeCNYTopUpTestOrder(
 		ExpectedCurrency:        "cny",
 		ExpectedLivemode:        false,
 		ExpectedQuota:           expectedQuota,
+	}
+	require.NoError(t, InsertStripeTopUpOrder(topUp))
+	return topUp
+}
+
+func insertStripeDynamicCNYTopUpTestOrder(
+	t *testing.T,
+	userId int,
+	targetType string,
+	targetId int,
+	amount int64,
+	rate *StripeFXDailyRate,
+	suffix string,
+) *TopUp {
+	t.Helper()
+	require.NotNil(t, rate)
+	expectedQuota, err := stripeExpectedQuotaForAmount(amount)
+	require.NoError(t, err)
+	expectedAmountMinor, err := CalculateStripeFXAmountMinor(amount, rate.RateE4)
+	require.NoError(t, err)
+	topUp := &TopUp{
+		UserId:                  userId,
+		Amount:                  amount,
+		Money:                   float64(amount),
+		TradeNo:                 "stripe-dynamic-cny-test-" + suffix,
+		PaymentMethod:           PaymentMethodStripe,
+		PaymentProvider:         PaymentProviderStripe,
+		CreateTime:              common.GetTimestamp(),
+		Status:                  common.TopUpStatusPending,
+		FundingTarget:           targetType,
+		FundingTargetId:         targetId,
+		StripeCheckoutMethod:    StripeCheckoutMethodWeChatPay,
+		StripePricingMode:       StripePricingModeInline,
+		StripeProductId:         "prod_dynamic_cny",
+		StripeLineItemQuantity:  1,
+		ExpectedUnitAmountMinor: expectedAmountMinor,
+		ExpectedAmountMinor:     expectedAmountMinor,
+		ExpectedCurrency:        "cny",
+		ExpectedLivemode:        false,
+		ExpectedQuota:           expectedQuota,
+		StripeFXRateId:          rate.Id,
+		StripeFXRateE4:          rate.RateE4,
+		StripeFXPricingDate:     rate.PricingDate,
+		StripeFXSource:          rate.Source,
+		StripeFXPublishedAt:     rate.SourcePublishedAt,
 	}
 	require.NoError(t, InsertStripeTopUpOrder(topUp))
 	return topUp
@@ -681,6 +781,112 @@ func TestStripeCNYTopUpSnapshotsPersonalAndTeamRefundAccounting(t *testing.T) {
 	teamBalance, err := GetPrepaidBalance(PrepaidTargetTeam, team.Id)
 	require.NoError(t, err)
 	assert.Equal(t, teamTopUp.ExpectedQuota/2, teamBalance.TotalQuota)
+}
+
+func TestStripeDynamicCNYTopUpUsesWholeOrderRoundingAndOriginalRefundSnapshot(t *testing.T) {
+	db := setupStripeTopUpTestDB(t)
+	rate := insertStripeFXDailyRateTest(t, 67_655)
+	user := createStripeTopUpTestUser(t, db, "stripe-dynamic-cny-personal")
+	topUp := insertStripeDynamicCNYTopUpTestOrder(
+		t,
+		user.Id,
+		StripeFundingTargetUser,
+		user.Id,
+		2,
+		rate,
+		"personal",
+	)
+
+	assert.EqualValues(t, 1_354, topUp.ExpectedAmountMinor)
+	assert.EqualValues(t, 1_354, topUp.ExpectedUnitAmountMinor)
+	assert.EqualValues(t, 1, topUp.StripeLineItemQuantity)
+	assert.Empty(t, topUp.StripePriceId)
+	assert.Equal(t, "prod_dynamic_cny", topUp.StripeProductId)
+	completeStripeTopUpTestOrder(t, topUp, "dynamic_cny_personal")
+
+	refund, err := ProcessStripeRefund(StripeRefundAdjustment{
+		EventId:         "evt_dynamic_cny_half_refund",
+		EventCreated:    100,
+		EventType:       "refund.updated",
+		RefundId:        "re_dynamic_cny_half_refund",
+		PaymentIntentId: "pi_dynamic_cny_personal",
+		AmountMinor:     677,
+		Currency:        "cny",
+		Status:          "succeeded",
+		Livemode:        false,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, refund)
+	assert.Equal(t, topUp.ExpectedQuota/2, refund.ReversedQuota)
+
+	balance, err := GetPrepaidBalance(PrepaidTargetUser, user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, topUp.ExpectedQuota/2, balance.TotalQuota)
+}
+
+func TestStripeDynamicCNYTopUpRejectsRateThatExpiredBeforeOrderInsert(t *testing.T) {
+	db := setupStripeTopUpTestDB(t)
+	now := time.Now().In(StripeFXBeijingLocation())
+	previousDay := now.AddDate(0, 0, -1)
+	previousFetchedAt := time.Date(
+		previousDay.Year(),
+		previousDay.Month(),
+		previousDay.Day(),
+		12,
+		0,
+		0,
+		0,
+		StripeFXBeijingLocation(),
+	)
+	previous, err := CreateStripeFXDailyRate(&StripeFXDailyRate{
+		PricingDate:       StripeFXPricingDate(previousFetchedAt),
+		Source:            StripeFXSourceBOCSpotSelling,
+		BaseCurrency:      StripeFXBaseCurrencyUSD,
+		QuoteCurrency:     StripeFXQuoteCurrencyCNY,
+		RateE4:            67_600,
+		SourcePublishedAt: previousFetchedAt.Add(-time.Hour).Unix(),
+		FetchedAt:         previousFetchedAt.Unix(),
+		SourceURL:         StripeFXBOCSourceURL,
+	})
+	require.NoError(t, err)
+	insertStripeFXDailyRateTest(t, 67_655)
+
+	user := createStripeTopUpTestUser(t, db, "stripe-expired-dynamic-cny")
+	expectedQuota, err := stripeExpectedQuotaForAmount(2)
+	require.NoError(t, err)
+	expectedAmountMinor, err := CalculateStripeFXAmountMinor(2, previous.RateE4)
+	require.NoError(t, err)
+	topUp := &TopUp{
+		UserId:                  user.Id,
+		Amount:                  2,
+		Money:                   2,
+		TradeNo:                 "stripe-expired-dynamic-cny-order",
+		PaymentMethod:           PaymentMethodStripe,
+		PaymentProvider:         PaymentProviderStripe,
+		CreateTime:              common.GetTimestamp(),
+		Status:                  common.TopUpStatusPending,
+		FundingTarget:           StripeFundingTargetUser,
+		FundingTargetId:         user.Id,
+		StripeCheckoutMethod:    StripeCheckoutMethodWeChatPay,
+		StripePricingMode:       StripePricingModeInline,
+		StripeProductId:         "prod_dynamic_cny",
+		StripeLineItemQuantity:  1,
+		ExpectedUnitAmountMinor: expectedAmountMinor,
+		ExpectedAmountMinor:     expectedAmountMinor,
+		ExpectedCurrency:        "cny",
+		ExpectedQuota:           expectedQuota,
+		StripeFXRateId:          previous.Id,
+		StripeFXRateE4:          previous.RateE4,
+		StripeFXPricingDate:     previous.PricingDate,
+		StripeFXSource:          previous.Source,
+		StripeFXPublishedAt:     previous.SourcePublishedAt,
+	}
+
+	err = InsertStripeTopUpOrder(topUp)
+	require.ErrorIs(t, err, ErrStripeFXQuoteExpired)
+	var count int64
+	require.NoError(t, db.Model(&TopUp{}).Where("trade_no = ?", topUp.TradeNo).Count(&count).Error)
+	assert.Zero(t, count)
 }
 
 func TestStripeTopUpSnapshotValidationRejectsCNYMismatchAndOverflow(t *testing.T) {

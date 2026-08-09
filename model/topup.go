@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -34,12 +35,20 @@ type TopUp struct {
 	StripePaymentIntent     *string `json:"-" gorm:"type:varchar(255);uniqueIndex"`
 	StripeCompleteEvent     string  `json:"-" gorm:"type:varchar(255)"`
 	StripeCheckoutMethod    string  `json:"-" gorm:"type:varchar(16)"`
+	StripePricingMode       string  `json:"-" gorm:"type:varchar(16)"`
 	StripePriceId           string  `json:"-" gorm:"type:varchar(255)"`
+	StripeProductId         string  `json:"-" gorm:"type:varchar(255)"`
+	StripeLineItemQuantity  int64   `json:"-" gorm:"type:bigint"`
 	ExpectedUnitAmountMinor int64   `json:"-" gorm:"type:bigint"`
 	ExpectedAmountMinor     int64   `json:"-" gorm:"type:bigint"`
 	ExpectedCurrency        string  `json:"-" gorm:"type:varchar(8)"`
 	ExpectedLivemode        bool    `json:"-"`
 	ExpectedQuota           int64   `json:"-" gorm:"type:bigint"`
+	StripeFXRateId          int64   `json:"-" gorm:"type:bigint;index"`
+	StripeFXRateE4          int64   `json:"-" gorm:"type:bigint"`
+	StripeFXPricingDate     string  `json:"-" gorm:"type:varchar(10)"`
+	StripeFXSource          string  `json:"-" gorm:"type:varchar(32)"`
+	StripeFXPublishedAt     int64   `json:"-" gorm:"type:bigint"`
 	CreditedQuota           int64   `json:"credited_quota,omitempty" gorm:"type:bigint"`
 
 	// ReversedQuota is the total valid refund/dispute liability. Applied quota
@@ -78,6 +87,8 @@ const (
 	StripeMaximumTopUpUSD         int64 = 50000
 	StripeCheckoutMethodStandard        = "standard"
 	StripeCheckoutMethodWeChatPay       = "wechat_pay"
+	StripePricingModePriceId            = "price_id"
+	StripePricingModeInline             = "inline"
 )
 
 var (
@@ -305,6 +316,20 @@ func ValidateStripeTopUpTarget(userId int, targetType string, targetId int) erro
 	})
 }
 
+// CalculateStripeFXAmountMinor converts an integer USD wallet-credit amount
+// into CNY fen using a rate expressed as CNY per USD with four decimal places.
+// The whole order is rounded up once so Stripe never receives a fractional fen.
+func CalculateStripeFXAmountMinor(usdAmount int64, rateE4 int64) (int64, error) {
+	if usdAmount <= 0 || rateE4 < 50_000 || rateE4 > 100_000 {
+		return 0, ErrStripeTopUpVerification
+	}
+	if usdAmount > (math.MaxInt64-99)/rateE4 {
+		return 0, ErrStripeTopUpVerification
+	}
+	numerator := usdAmount * rateE4
+	return (numerator + 99) / 100, nil
+}
+
 func InsertStripeTopUpOrder(topUp *TopUp) error {
 	if topUp == nil || strings.TrimSpace(topUp.TradeNo) == "" {
 		return errors.New("invalid Stripe top-up order")
@@ -326,45 +351,112 @@ func InsertStripeTopUpOrder(topUp *TopUp) error {
 	}
 	checkoutMethod := topUp.StripeCheckoutMethod
 	unitAmountMinor := topUp.ExpectedUnitAmountMinor
+	if len(topUp.StripePriceId) > 255 ||
+		len(topUp.StripeProductId) > 255 ||
+		len(topUp.StripeFXPricingDate) > 10 ||
+		len(topUp.StripeFXSource) > 32 {
+		return ErrStripeTopUpVerification
+	}
+	hasFXSnapshot := topUp.StripeFXRateId != 0 ||
+		topUp.StripeFXRateE4 != 0 ||
+		topUp.StripeFXPricingDate != "" ||
+		topUp.StripeFXSource != "" ||
+		topUp.StripeFXPublishedAt != 0
 	switch checkoutMethod {
 	case "":
 		// Rows created before checkout snapshots were introduced are legacy USD
 		// orders. Keep accepting that exact shape for rolling upgrades and tests;
 		// all new controller-created orders populate the explicit fields below.
-		if strings.TrimSpace(topUp.StripePriceId) != "" ||
+		if topUp.StripePricingMode != "" ||
+			strings.TrimSpace(topUp.StripePriceId) != "" ||
+			strings.TrimSpace(topUp.StripeProductId) != "" ||
+			topUp.StripeLineItemQuantity != 0 ||
 			unitAmountMinor != 0 ||
 			topUp.ExpectedCurrency != "usd" ||
-			topUp.ExpectedAmountMinor != topUp.Amount*100 {
+			topUp.ExpectedAmountMinor != topUp.Amount*100 ||
+			hasFXSnapshot {
 			return ErrStripeTopUpVerification
 		}
 	case StripeCheckoutMethodStandard:
 		if strings.TrimSpace(topUp.StripePriceId) == "" ||
+			strings.TrimSpace(topUp.StripeProductId) != "" ||
 			unitAmountMinor != 100 ||
-			topUp.ExpectedCurrency != "usd" {
+			topUp.ExpectedCurrency != "usd" ||
+			hasFXSnapshot {
+			return ErrStripeTopUpVerification
+		}
+		switch topUp.StripePricingMode {
+		case "":
+			// Orders created before pricing-mode snapshots used Price ID ×
+			// Amount and left the explicit quantity at zero.
+			if topUp.StripeLineItemQuantity != 0 {
+				return ErrStripeTopUpVerification
+			}
+		case StripePricingModePriceId:
+			if topUp.StripeLineItemQuantity != topUp.Amount {
+				return ErrStripeTopUpVerification
+			}
+		default:
+			return ErrStripeTopUpVerification
+		}
+		if topUp.Amount > math.MaxInt64/unitAmountMinor ||
+			topUp.ExpectedAmountMinor != topUp.Amount*unitAmountMinor {
 			return ErrStripeTopUpVerification
 		}
 	case StripeCheckoutMethodWeChatPay:
-		if strings.TrimSpace(topUp.StripePriceId) == "" ||
-			unitAmountMinor <= 0 ||
-			topUp.ExpectedCurrency != "cny" {
+		if topUp.ExpectedCurrency != "cny" {
+			return ErrStripeTopUpVerification
+		}
+		switch topUp.StripePricingMode {
+		case "":
+			// Fixed-CNY Price orders created by the previous release remain
+			// valid for delayed webhooks and refunds after this migration.
+			if strings.TrimSpace(topUp.StripePriceId) == "" ||
+				strings.TrimSpace(topUp.StripeProductId) != "" ||
+				topUp.StripeLineItemQuantity != 0 ||
+				unitAmountMinor <= 0 ||
+				hasFXSnapshot ||
+				topUp.Amount > math.MaxInt64/unitAmountMinor ||
+				topUp.ExpectedAmountMinor != topUp.Amount*unitAmountMinor {
+				return ErrStripeTopUpVerification
+			}
+		case StripePricingModeInline:
+			expectedAmountMinor, err := CalculateStripeFXAmountMinor(topUp.Amount, topUp.StripeFXRateE4)
+			if err != nil ||
+				strings.TrimSpace(topUp.StripePriceId) != "" ||
+				strings.TrimSpace(topUp.StripeProductId) == "" ||
+				topUp.StripeLineItemQuantity != 1 ||
+				unitAmountMinor != expectedAmountMinor ||
+				topUp.ExpectedAmountMinor != expectedAmountMinor ||
+				topUp.StripeFXRateId <= 0 ||
+				len(topUp.StripeFXPricingDate) != 10 ||
+				topUp.StripeFXSource != StripeFXSourceBOCSpotSelling ||
+				topUp.StripeFXPublishedAt <= 0 {
+				return ErrStripeTopUpVerification
+			}
+		default:
 			return ErrStripeTopUpVerification
 		}
 	default:
 		return ErrStripeTopUpVerification
 	}
-	if len(topUp.StripePriceId) > 255 {
-		return ErrStripeTopUpVerification
-	}
-	if checkoutMethod != "" {
-		if topUp.Amount > math.MaxInt64/unitAmountMinor ||
-			topUp.ExpectedAmountMinor != topUp.Amount*unitAmountMinor {
-			return ErrStripeTopUpVerification
-		}
-	}
 	if len(topUp.TradeNo) > 255 {
 		return errors.New("Stripe order reference is too long")
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
+		if topUp.StripePricingMode == StripePricingModeInline {
+			rate, err := loadEffectiveStripeFXDailyRateTx(tx, time.Now(), true)
+			if err != nil || rate.Id != topUp.StripeFXRateId {
+				return ErrStripeFXQuoteExpired
+			}
+			if validateStripeFXDailyRate(rate) != nil ||
+				rate.RateE4 != topUp.StripeFXRateE4 ||
+				rate.PricingDate != topUp.StripeFXPricingDate ||
+				rate.Source != topUp.StripeFXSource ||
+				rate.SourcePublishedAt != topUp.StripeFXPublishedAt {
+				return ErrStripeTopUpVerification
+			}
+		}
 		if err := validateStripeTopUpTargetTx(
 			tx,
 			topUp.UserId,

@@ -50,11 +50,15 @@ describe('Stripe checkout variants', () => {
     }
 
     assert.equal(getPaymentLoadingKey(method), 'stripe:wechat_pay')
-    assert.deepEqual(createStripeTopupPayload(5, 'wechat_pay'), {
-      amount: 5,
-      payment_method: 'stripe',
-      checkout_method: 'wechat_pay',
-    })
+    assert.deepEqual(
+      createStripeTopupPayload(5, 'wechat_pay', 'boc-fx-2026-08-09-v1'),
+      {
+        amount: 5,
+        payment_method: 'stripe',
+        checkout_method: 'wechat_pay',
+        quote_version: 'boc-fx-2026-08-09-v1',
+      }
+    )
   })
 
   test('passes the selected Stripe checkout variant through confirmation', async () => {
@@ -84,22 +88,33 @@ describe('Stripe checkout variants', () => {
   test('keeps display and submission bound to the clicked confirmation snapshot', async () => {
     const snapshot = createPaymentConfirmationSnapshot(
       2,
-      14.4,
+      13.54,
       {
         name: 'WeChat Pay',
         type: PAYMENT_TYPES.STRIPE,
         checkout_method: 'wechat_pay',
       },
-      null
+      null,
+      {
+        pay_amount_minor: 1354,
+        currency: 'CNY',
+        exchange_rate: '6.7655',
+        source: 'boc_spot_selling',
+        pricing_date: '2026-08-09',
+        source_published_at: 1_786_244_200,
+        quote_version: 'boc-fx-2026-08-09-v1',
+      }
     )
     const formAmountAfterClick = 5
     let submittedAmount = 0
     let submittedCheckoutMethod: string | undefined
+    let submittedQuoteVersion: string | undefined
 
     const success = await dispatchPaymentConfirmation(snapshot, {
-      regular: async (amount, _type, checkoutMethod) => {
+      regular: async (amount, _type, checkoutMethod, quoteVersion) => {
         submittedAmount = amount
         submittedCheckoutMethod = checkoutMethod
+        submittedQuoteVersion = quoteVersion
         return true
       },
       waffo: async () => false,
@@ -108,14 +123,25 @@ describe('Stripe checkout variants', () => {
 
     assert.equal(formAmountAfterClick, 5)
     assert.equal(snapshot.creditAmount, 2)
-    assert.equal(snapshot.quotedPaymentAmount, 14.4)
+    assert.equal(snapshot.quotedPaymentAmount, 13.54)
     assert.equal(snapshot.currencyCode, 'CNY')
     assert.equal(snapshot.checkoutMethod, 'wechat_pay')
+    assert.deepEqual(snapshot.stripeFxQuote, {
+      pay_amount_minor: 1354,
+      currency: 'CNY',
+      exchange_rate: '6.7655',
+      source: 'boc_spot_selling',
+      pricing_date: '2026-08-09',
+      source_published_at: 1_786_244_200,
+      quote_version: 'boc-fx-2026-08-09-v1',
+    })
     assert.equal(submittedAmount, 2)
     assert.equal(submittedCheckoutMethod, 'wechat_pay')
+    assert.equal(submittedQuoteVersion, 'boc-fx-2026-08-09-v1')
     assert.equal(success, true)
     assert.equal(Object.isFrozen(snapshot), true)
     assert.equal(Object.isFrozen(snapshot.paymentMethod), true)
+    assert.equal(Object.isFrozen(snapshot.stripeFxQuote), true)
   })
 })
 

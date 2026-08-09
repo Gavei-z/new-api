@@ -18,13 +18,23 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { TFunction } from 'i18next'
 
-import { PAYMENT_TYPES } from '@/features/wallet/constants'
+import {
+  PAYMENT_TYPES,
+  STRIPE_CHECKOUT_METHODS,
+} from '@/features/wallet/constants'
 import type { StripeCheckoutMethod } from '@/features/wallet/types'
 
 import type { TeamStripeAmountPayload, TeamStripeTopupPayload } from './types'
 
 export function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
+}
+
+export function getErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('code' in error)) {
+    return undefined
+  }
+  return typeof error.code === 'string' ? error.code : undefined
 }
 
 export function createIdempotencyKey(): string {
@@ -75,13 +85,18 @@ export function transactionTypeLabel(t: TFunction, type: string): string {
  */
 export function createTeamStripeTopupPayload(
   amount: number,
-  checkoutMethod: StripeCheckoutMethod
+  checkoutMethod: StripeCheckoutMethod,
+  quoteVersion?: string
 ): TeamStripeTopupPayload {
-  return {
+  const payload: TeamStripeTopupPayload = {
     amount,
     payment_method: PAYMENT_TYPES.STRIPE,
     checkout_method: checkoutMethod,
   }
+  if (checkoutMethod === STRIPE_CHECKOUT_METHODS.WECHAT_PAY && quoteVersion) {
+    payload.quote_version = quoteVersion
+  }
+  return payload
 }
 
 export function createTeamStripeAmountPayload(

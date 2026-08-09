@@ -28,6 +28,7 @@ import type {
   PaymentMethod,
   PresetAmount,
   StripeCheckoutMethod,
+  StripeFxQuote,
   StripePaymentRequest,
   TopupInfo,
 } from '../types'
@@ -98,13 +99,18 @@ export function getPaymentLoadingKey(paymentMethod: PaymentMethod): string {
 
 export function createStripeTopupPayload(
   amount: number,
-  checkoutMethod: StripeCheckoutMethod
+  checkoutMethod: StripeCheckoutMethod,
+  quoteVersion?: string
 ): StripePaymentRequest {
-  return {
+  const payload: StripePaymentRequest = {
     amount,
     payment_method: PAYMENT_TYPES.STRIPE,
     checkout_method: checkoutMethod,
   }
+  if (checkoutMethod === STRIPE_CHECKOUT_METHODS.WECHAT_PAY && quoteVersion) {
+    payload.quote_version = quoteVersion
+  }
+  return payload
 }
 
 /**
@@ -137,7 +143,8 @@ export interface PaymentProcessors {
   regular: (
     topupAmount: number,
     paymentType: string,
-    stripeCheckoutMethod?: StripeCheckoutMethod
+    stripeCheckoutMethod?: StripeCheckoutMethod,
+    quoteVersion?: string
   ) => Promise<boolean>
   waffo: (topupAmount: number, payMethodIndex: number) => Promise<boolean>
   waffoPancake: (topupAmount: number) => Promise<boolean>
@@ -147,7 +154,8 @@ export function createPaymentConfirmationSnapshot(
   creditAmount: number,
   quotedPaymentAmount: number,
   paymentMethod: PaymentMethod,
-  waffoMethodIndex: number | null
+  waffoMethodIndex: number | null,
+  stripeFxQuote?: StripeFxQuote
 ): PaymentConfirmationSnapshot {
   let checkoutMethod: StripeCheckoutMethod | undefined
   let currencyCode: PaymentConfirmationSnapshot['currencyCode']
@@ -163,6 +171,9 @@ export function createPaymentConfirmationSnapshot(
     paymentMethod: Object.freeze({ ...paymentMethod }),
     checkoutMethod,
     currencyCode,
+    stripeFxQuote: stripeFxQuote
+      ? Object.freeze({ ...stripeFxQuote })
+      : undefined,
     waffoMethodIndex,
   })
 }
@@ -171,7 +182,8 @@ export async function dispatchSelectedPayment(
   paymentMethod: PaymentMethod,
   topupAmount: number,
   waffoMethodIndex: number | null,
-  processors: PaymentProcessors
+  processors: PaymentProcessors,
+  quoteVersion?: string
 ): Promise<boolean> {
   if (!isIntegerTopupAmount(topupAmount)) {
     return false
@@ -193,7 +205,8 @@ export async function dispatchSelectedPayment(
     paymentMethod.type,
     isStripePayment(paymentMethod.type)
       ? getStripeCheckoutMethod(paymentMethod)
-      : undefined
+      : undefined,
+    quoteVersion
   )
 }
 
@@ -205,7 +218,8 @@ export function dispatchPaymentConfirmation(
     snapshot.paymentMethod,
     snapshot.creditAmount,
     snapshot.waffoMethodIndex,
-    processors
+    processors,
+    snapshot.stripeFxQuote?.quote_version
   )
 }
 

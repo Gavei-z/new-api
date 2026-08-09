@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	mysqlDriver "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
@@ -49,6 +50,12 @@ func TestPrepaidReserveRealDatabases(t *testing.T) {
 			if dsn == "" {
 				t.Skipf("%s is not configured", configuration.environment)
 			}
+			if configuration.databaseType == common.DatabaseTypeMySQL {
+				mysqlConfig, parseErr := mysqlDriver.ParseDSN(dsn)
+				require.NoError(t, parseErr)
+				mysqlConfig.ClientFoundRows = true
+				dsn = mysqlConfig.FormatDSN()
+			}
 
 			db, err := gorm.Open(configuration.open(dsn), &gorm.Config{
 				Logger: logger.Default.LogMode(logger.Silent),
@@ -87,6 +94,8 @@ func TestPrepaidReserveRealDatabases(t *testing.T) {
 				&PrepaidReserve{},
 				&PrepaidReserveTransaction{},
 				&TopUp{},
+				&StripeFXDailyRate{},
+				&StripeFXRateHead{},
 				&StripePaymentIntentLink{},
 				&StripeAdjustmentInbox{},
 				&Log{},
@@ -97,6 +106,10 @@ func TestPrepaidReserveRealDatabases(t *testing.T) {
 			assert.True(t, db.Migrator().HasColumn(&TopUp{}, "stripe_checkout_method"))
 			assert.True(t, db.Migrator().HasColumn(&TopUp{}, "stripe_price_id"))
 			assert.True(t, db.Migrator().HasColumn(&TopUp{}, "expected_unit_amount_minor"))
+			assert.True(t, db.Migrator().HasColumn(&StripeFXDailyRate{}, "rate_e4"))
+			assert.True(t, db.Migrator().HasIndex(&StripeFXDailyRate{}, "idx_stripe_fx_daily_rate"))
+			assert.True(t, db.Migrator().HasColumn(&StripeFXRateHead{}, "current_rate_id"))
+			assert.True(t, db.Migrator().HasIndex(&StripeFXRateHead{}, "idx_stripe_fx_rate_head"))
 			assert.True(t, db.Migrator().HasIndex(&PrepaidReserve{}, "idx_prepaid_reserve_target"))
 			assertBigintColumn := func(modelValue any, columnName string) {
 				columnTypes, columnErr := db.Migrator().ColumnTypes(modelValue)
@@ -133,6 +146,7 @@ func TestPrepaidReserveRealDatabases(t *testing.T) {
 				AffCode:     "a-" + shortID,
 			}
 			require.NoError(t, db.Create(&user).Error)
+			verifyStripeFXRotationSerialization(t, db, &user, runID)
 
 			const largeCredit = int64(25_000_000_000)
 			largeCreditKey := "prepaid-it:" + runID + ":large"
@@ -543,4 +557,160 @@ func TestPrepaidReserveRealDatabases(t *testing.T) {
 			assert.Zero(t, rollbackTransactionCount)
 		})
 	}
+}
+
+func verifyStripeFXRotationSerialization(t *testing.T, db *gorm.DB, user *User, runID string) {
+	t.Helper()
+	require.NoError(t, db.Exec("DELETE FROM stripe_fx_rate_heads").Error)
+	require.NoError(t, db.Exec("DELETE FROM stripe_fx_daily_rates").Error)
+
+	currentFetchedAt := time.Now().In(StripeFXBeijingLocation()).Truncate(time.Second)
+	previousFetchedAt := currentFetchedAt.AddDate(0, 0, -1)
+	previous, err := CreateStripeFXDailyRate(&StripeFXDailyRate{
+		PricingDate:       StripeFXPricingDate(previousFetchedAt),
+		Source:            StripeFXSourceBOCSpotSelling,
+		BaseCurrency:      StripeFXBaseCurrencyUSD,
+		QuoteCurrency:     StripeFXQuoteCurrencyCNY,
+		RateE4:            67_600,
+		SourcePublishedAt: previousFetchedAt.Unix(),
+		FetchedAt:         previousFetchedAt.Unix(),
+		SourceURL:         StripeFXBOCSourceURL,
+	})
+	require.NoError(t, err)
+	replay := *previous
+	replay.Id = 0
+	replay.FetchedAt++
+	replayed, err := CreateStripeFXDailyRate(&replay)
+	require.NoError(t, err)
+	assert.Equal(t, previous.Id, replayed.Id)
+	assert.Equal(t, previous.FetchedAt, replayed.FetchedAt)
+	conflict := replay
+	conflict.Id = 0
+	conflict.RateE4++
+	_, err = CreateStripeFXDailyRate(&conflict)
+	require.ErrorIs(t, err, ErrStripeFXRateImmutable)
+
+	rotationTx := db.Begin()
+	require.NoError(t, rotationTx.Error)
+	rotationCommitted := false
+	t.Cleanup(func() {
+		if !rotationCommitted {
+			_ = rotationTx.Rollback().Error
+		}
+	})
+	head, err := lockStripeFXRateHeadTx(rotationTx, false)
+	require.NoError(t, err)
+	current := &StripeFXDailyRate{
+		PricingDate:       StripeFXPricingDate(currentFetchedAt),
+		Source:            StripeFXSourceBOCSpotSelling,
+		BaseCurrency:      StripeFXBaseCurrencyUSD,
+		QuoteCurrency:     StripeFXQuoteCurrencyCNY,
+		RateE4:            67_655,
+		SourcePublishedAt: currentFetchedAt.Unix(),
+		FetchedAt:         currentFetchedAt.Unix(),
+		SourceURL:         StripeFXBOCSourceURL,
+	}
+	require.NoError(t, rotationTx.Create(current).Error)
+	require.NoError(t, rotationTx.Model(&StripeFXRateHead{}).
+		Where("id = ?", head.Id).
+		Update("current_rate_id", current.Id).Error)
+
+	type fxRotationEvent struct {
+		kind       string
+		hasForLock bool
+	}
+	events := make(chan fxRotationEvent, 2)
+	queryCallback := "test:stripe-fx-head-lock:" + runID
+	createCallback := "test:stripe-fx-order-create:" + runID
+	require.NoError(t, db.Callback().Query().Before("gorm:query").Register(
+		queryCallback,
+		func(tx *gorm.DB) {
+			table := tx.Statement.Table
+			if table == "" && tx.Statement.Schema != nil {
+				table = tx.Statement.Schema.Table
+			}
+			if table != "stripe_fx_rate_heads" {
+				return
+			}
+			_, hasForLock := tx.Statement.Clauses["FOR"]
+			select {
+			case events <- fxRotationEvent{kind: "head", hasForLock: hasForLock}:
+			default:
+			}
+		},
+	))
+	require.NoError(t, db.Callback().Create().Before("gorm:create").Register(
+		createCallback,
+		func(tx *gorm.DB) {
+			table := tx.Statement.Table
+			if table == "" && tx.Statement.Schema != nil {
+				table = tx.Statement.Schema.Table
+			}
+			if table != "top_ups" {
+				return
+			}
+			select {
+			case events <- fxRotationEvent{kind: "topup"}:
+			default:
+			}
+		},
+	))
+	defer func() {
+		_ = db.Callback().Query().Remove(queryCallback)
+		_ = db.Callback().Create().Remove(createCallback)
+	}()
+
+	expectedQuota, err := stripeExpectedQuotaForAmount(2)
+	require.NoError(t, err)
+	expectedAmountMinor, err := CalculateStripeFXAmountMinor(2, previous.RateE4)
+	require.NoError(t, err)
+	topUp := &TopUp{
+		UserId:                  user.Id,
+		Amount:                  2,
+		Money:                   2,
+		TradeNo:                 "stripe-fx-rotation-" + runID,
+		PaymentMethod:           PaymentMethodStripe,
+		PaymentProvider:         PaymentProviderStripe,
+		CreateTime:              common.GetTimestamp(),
+		Status:                  common.TopUpStatusPending,
+		FundingTarget:           StripeFundingTargetUser,
+		FundingTargetId:         user.Id,
+		StripeCheckoutMethod:    StripeCheckoutMethodWeChatPay,
+		StripePricingMode:       StripePricingModeInline,
+		StripeProductId:         "prod-fx-rotation",
+		StripeLineItemQuantity:  1,
+		ExpectedUnitAmountMinor: expectedAmountMinor,
+		ExpectedAmountMinor:     expectedAmountMinor,
+		ExpectedCurrency:        StripeFXQuoteCurrencyCNY,
+		ExpectedQuota:           expectedQuota,
+		StripeFXRateId:          previous.Id,
+		StripeFXRateE4:          previous.RateE4,
+		StripeFXPricingDate:     previous.PricingDate,
+		StripeFXSource:          previous.Source,
+		StripeFXPublishedAt:     previous.SourcePublishedAt,
+	}
+	orderResult := make(chan error, 1)
+	go func() {
+		orderResult <- InsertStripeTopUpOrder(topUp)
+	}()
+
+	var event fxRotationEvent
+	select {
+	case event = <-events:
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "timed out waiting for Stripe FX order lock attempt")
+	}
+	if event.kind != "head" || !event.hasForLock {
+		_ = rotationTx.Rollback().Error
+		rotationCommitted = true
+		<-orderResult
+		require.FailNow(t, "CNY order reached persistence without a FOR UPDATE head lock")
+	}
+	require.NoError(t, rotationTx.Commit().Error)
+	rotationCommitted = true
+	require.ErrorIs(t, <-orderResult, ErrStripeFXQuoteExpired)
+
+	var count int64
+	require.NoError(t, db.Model(&TopUp{}).Where("trade_no = ?", topUp.TradeNo).Count(&count).Error)
+	assert.Zero(t, count)
 }
