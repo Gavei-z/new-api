@@ -20,8 +20,11 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
+  CLAUDE_CODE_INSTALL_URL,
   CLAUDE_CODE_EXAMPLE,
   CODEX_CONFIG_EXAMPLE,
+  CODEX_INSTALL_URL,
+  CODEX_KEY_EXAMPLE,
   DOCS_SECTIONS,
   PYTHON_SDK_EXAMPLE,
   RESPONSE_CURL_EXAMPLE,
@@ -41,6 +44,7 @@ describe('uniRouters documentation contract', () => {
       RESPONSE_CURL_EXAMPLE,
       PYTHON_SDK_EXAMPLE,
       TYPESCRIPT_SDK_EXAMPLE,
+      CODEX_KEY_EXAMPLE,
       CODEX_CONFIG_EXAMPLE,
       CLAUDE_CODE_EXAMPLE,
     ]
@@ -51,6 +55,25 @@ describe('uniRouters documentation contract', () => {
       assert.ok(!example.includes('relayrouter.io'))
       assert.ok(!example.includes('onerouter.one'))
     }
+  })
+
+  test('links to the official Codex CLI and Claude Code setup guides', () => {
+    assert.equal(CODEX_INSTALL_URL, 'https://developers.openai.com/codex/cli')
+    assert.equal(
+      CLAUDE_CODE_INSTALL_URL,
+      'https://code.claude.com/docs/en/getting-started'
+    )
+  })
+
+  test('keeps the Codex key in the shell environment instead of TOML', () => {
+    assert.ok(CODEX_CONFIG_EXAMPLE.includes('env_key = "UNIROUTERS_API_KEY"'))
+    assert.ok(!CODEX_CONFIG_EXAMPLE.includes('sk-unirouters-your-key'))
+    assert.ok(
+      CODEX_KEY_EXAMPLE.includes(
+        'export UNIROUTERS_API_KEY="sk-unirouters-your-key"'
+      )
+    )
+    assert.ok(CODEX_KEY_EXAMPLE.endsWith('\ncodex'))
   })
 
   test('exposes unique anchors for the responsive docs navigation', () => {

@@ -21,6 +21,9 @@ export const UNIROUTERS_API_BASE_URL = `${UNIROUTERS_ORIGIN}/v1`
 export const UNIROUTERS_DOCS_PATH = '/docs'
 export const UNIROUTERS_API_KEY_PLACEHOLDER = 'sk-unirouters-your-key'
 export const UNIROUTERS_DEFAULT_MODEL = 'gpt-5.6-sol'
+export const CODEX_INSTALL_URL = 'https://developers.openai.com/codex/cli'
+export const CLAUDE_CODE_INSTALL_URL =
+  'https://code.claude.com/docs/en/getting-started'
 
 export const DOCS_SECTIONS = [
   { id: 'overview', labelKey: 'docs.nav.overview' },
@@ -72,7 +75,9 @@ const response = await client.responses.create({
 
 console.log(response.output_text);`
 
-export const CODEX_KEY_EXAMPLE = `export UNIROUTERS_API_KEY="${UNIROUTERS_API_KEY_PLACEHOLDER}"`
+export const CODEX_KEY_EXAMPLE = `export UNIROUTERS_API_KEY="${UNIROUTERS_API_KEY_PLACEHOLDER}"
+
+codex`
 
 export const CODEX_CONFIG_EXAMPLE = `model = "${UNIROUTERS_DEFAULT_MODEL}"
 model_provider = "unirouters"

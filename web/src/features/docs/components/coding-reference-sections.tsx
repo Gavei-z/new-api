@@ -16,12 +16,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { AlertCircle, Bot, Braces, MessageSquareCode } from 'lucide-react'
+import {
+  AlertCircle,
+  Bot,
+  Braces,
+  ExternalLink,
+  MessageSquareCode,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import {
+  CLAUDE_CODE_INSTALL_URL,
   CLAUDE_CODE_EXAMPLE,
   CODEX_CONFIG_EXAMPLE,
+  CODEX_INSTALL_URL,
   CODEX_KEY_EXAMPLE,
 } from '../constants'
 import { CodeSample } from './code-sample'
@@ -91,20 +99,32 @@ export function CodingAgentsSection() {
               <p className='text-muted-foreground mt-1 text-sm leading-6'>
                 {t('docs.agents.codex.description')}
               </p>
+              <a
+                href={CODEX_INSTALL_URL}
+                target='_blank'
+                rel='noopener noreferrer'
+                className='text-primary mt-2 inline-flex items-center gap-1 text-sm font-medium hover:underline'
+              >
+                {t('docs.agents.codex.installGuide')}
+                <ExternalLink aria-hidden='true' className='size-3.5' />
+              </a>
             </div>
           </div>
           <div className='mt-4 grid gap-4'>
-            <CodeSample
-              code={CODEX_KEY_EXAMPLE}
-              label={t('docs.agents.codex.environment')}
-              language='Shell'
-            />
             <CodeSample
               code={CODEX_CONFIG_EXAMPLE}
               label='~/.codex/config.toml'
               language='TOML'
             />
+            <CodeSample
+              code={CODEX_KEY_EXAMPLE}
+              label={t('docs.agents.codex.environment')}
+              language='Shell'
+            />
           </div>
+          <p className='text-muted-foreground mt-3 text-xs leading-5'>
+            {t('docs.agents.codex.envKeyNote')}
+          </p>
         </div>
 
         <div className='border-border/60 border-t pt-7'>
@@ -119,6 +139,15 @@ export function CodingAgentsSection() {
               <p className='text-muted-foreground mt-1 text-sm leading-6'>
                 {t('docs.agents.claudeCode.description')}
               </p>
+              <a
+                href={CLAUDE_CODE_INSTALL_URL}
+                target='_blank'
+                rel='noopener noreferrer'
+                className='text-primary mt-2 inline-flex items-center gap-1 text-sm font-medium hover:underline'
+              >
+                {t('docs.agents.claudeCode.installGuide')}
+                <ExternalLink aria-hidden='true' className='size-3.5' />
+              </a>
             </div>
           </div>
           <CodeSample
