@@ -89,7 +89,7 @@ describe('public legal content', () => {
   })
 
   test('uses the approved public support mailbox', () => {
-    assert.equal(UNIROUTERS_SUPPORT_EMAIL, 'dealerjzad@gmail.com')
+    assert.equal(UNIROUTERS_SUPPORT_EMAIL, 'support@unirouters.cc')
   })
 
   test('states the unused-balance refund, processing fee, and enforcement rules', () => {

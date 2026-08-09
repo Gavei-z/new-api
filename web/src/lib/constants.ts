@@ -24,7 +24,7 @@ import uniRoutersLogo from '@/assets/images/uniRouters-logo.png'
 // System Configuration Defaults
 export const DEFAULT_SYSTEM_NAME = 'uniRouters'
 export const DEFAULT_LOGO = uniRoutersLogo
-export const UNIROUTERS_SUPPORT_EMAIL = 'dealerjzad@gmail.com'
+export const UNIROUTERS_SUPPORT_EMAIL = 'support@unirouters.cc'
 
 // LocalStorage Keys
 export const STORAGE_KEYS = {
