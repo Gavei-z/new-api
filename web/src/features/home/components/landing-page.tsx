@@ -462,7 +462,7 @@ function ModelShowcase() {
         <ModelCardsGrid />
         <div className='mt-10 text-center'>
           <Link
-            to='/pricing'
+            to='/pricing#model-pricing-title'
             className='text-muted-foreground hover:bg-accent hover:text-foreground group inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition'
           >
             {t('View all available models')}
