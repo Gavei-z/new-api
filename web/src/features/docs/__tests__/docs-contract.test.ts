@@ -30,6 +30,7 @@ import {
   RESPONSE_CURL_EXAMPLE,
   TYPESCRIPT_SDK_EXAMPLE,
   UNIROUTERS_API_BASE_URL,
+  UNIROUTERS_CLAUDE_MODEL,
   UNIROUTERS_DOCS_PATH,
 } from '../constants'
 
@@ -74,6 +75,15 @@ describe('uniRouters documentation contract', () => {
       )
     )
     assert.ok(CODEX_KEY_EXAMPLE.endsWith('\ncodex'))
+  })
+
+  test('configures Claude Code with a model served by the Anthropic channel', () => {
+    assert.equal(UNIROUTERS_CLAUDE_MODEL, 'claude-opus-5')
+    assert.ok(
+      CLAUDE_CODE_EXAMPLE.includes(
+        `export ANTHROPIC_MODEL="${UNIROUTERS_CLAUDE_MODEL}"`
+      )
+    )
   })
 
   test('exposes unique anchors for the responsive docs navigation', () => {

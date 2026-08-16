@@ -21,6 +21,7 @@ export const UNIROUTERS_API_BASE_URL = `${UNIROUTERS_ORIGIN}/v1`
 export const UNIROUTERS_DOCS_PATH = '/docs'
 export const UNIROUTERS_API_KEY_PLACEHOLDER = 'sk-unirouters-your-key'
 export const UNIROUTERS_DEFAULT_MODEL = 'gpt-5.6-sol'
+export const UNIROUTERS_CLAUDE_MODEL = 'claude-opus-5'
 export const CODEX_INSTALL_URL = 'https://developers.openai.com/codex/cli'
 export const CLAUDE_CODE_INSTALL_URL =
   'https://code.claude.com/docs/en/getting-started'
@@ -90,6 +91,6 @@ wire_api = "responses"`
 
 export const CLAUDE_CODE_EXAMPLE = `export ANTHROPIC_BASE_URL="${UNIROUTERS_ORIGIN}"
 export ANTHROPIC_AUTH_TOKEN="${UNIROUTERS_API_KEY_PLACEHOLDER}"
-export ANTHROPIC_MODEL="${UNIROUTERS_DEFAULT_MODEL}"
+export ANTHROPIC_MODEL="${UNIROUTERS_CLAUDE_MODEL}"
 
 claude`

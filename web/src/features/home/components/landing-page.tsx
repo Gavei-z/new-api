@@ -53,6 +53,7 @@ npm install -g @anthropic-ai/claude-code
 # 2. ${t('Route requests through uniRouters')}
 export ANTHROPIC_BASE_URL="https://unirouters.cc"
 export ANTHROPIC_AUTH_TOKEN="sk-one-xxx"
+export ANTHROPIC_MODEL="claude-opus-5"
 
 # 3. ${t('Start Claude Code')}
 claude`,
@@ -78,7 +79,7 @@ codex`,
 client = OpenAI(base_url="https://unirouters.cc/v1", api_key="sk-one-xxx")
 
 resp = client.chat.completions.create(
-    model="claude-sonnet-4-5",
+    model="claude-opus-4-8",
     messages=[{"role": "user", "content": "hi"}],
 )
 print(resp.choices[0].message.content)`,
@@ -214,40 +215,40 @@ const models = [
     ],
   },
   {
-    provider: 'Google',
-    name: 'gemini-3.1-pro',
+    provider: 'Anthropic',
+    name: 'claude-opus-5',
     description:
-      "Google's preview Pro model for advanced multimodal understanding, agentic workflows, and complex coding tasks.",
-    tags: ['Multimodal', 'Reasoning'],
+      "Anthropic's advanced Opus model for complex agentic coding, deep reasoning, and long-horizon enterprise work.",
+    tags: ['Reasoning', 'Coding'],
     prices: [
       {
         label: 'Input',
-        official: '$2.00',
-        sale: '$0.40',
+        official: '$5.00',
+        sale: '$1.00',
       },
       {
         label: 'Output',
-        official: '$12.00',
-        sale: '$2.40',
+        official: '$25.00',
+        sale: '$5.00',
       },
     ],
   },
   {
-    provider: 'Google',
-    name: 'gemini-3.6-flash',
+    provider: 'Anthropic',
+    name: 'claude-opus-4-8',
     description:
-      'A production-ready Flash model that combines speed with strong intelligence for agentic and multimodal workloads.',
-    tags: ['Multimodal', 'Efficient'],
+      "Anthropic's proven Opus model for demanding coding, agentic workflows, and professional knowledge work.",
+    tags: ['Reasoning', 'Coding'],
     prices: [
       {
         label: 'Input',
-        official: '$1.50',
-        sale: '$0.30',
+        official: '$5.00',
+        sale: '$1.00',
       },
       {
         label: 'Output',
-        official: '$7.50',
-        sale: '$1.50',
+        official: '$25.00',
+        sale: '$5.00',
       },
     ],
   },
@@ -462,7 +463,8 @@ function ModelShowcase() {
         <ModelCardsGrid />
         <div className='mt-10 text-center'>
           <Link
-            to='/pricing#model-pricing-title'
+            to='/pricing'
+            hash='model-pricing-title'
             className='text-muted-foreground hover:bg-accent hover:text-foreground group inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition'
           >
             {t('View all available models')}

@@ -43,6 +43,18 @@ async function renderModelCards(language: string, resources: Resource) {
   )
 }
 
+function getModelCard(markup: string, modelName: string) {
+  const modelIndex = markup.indexOf(modelName)
+  assert.notEqual(modelIndex, -1, `${modelName} card should be rendered`)
+
+  const cardStart = markup.lastIndexOf('<article', modelIndex)
+  const cardEnd = markup.indexOf('</article>', modelIndex)
+  assert.notEqual(cardStart, -1, `${modelName} card should have a start`)
+  assert.notEqual(cardEnd, -1, `${modelName} card should have an end`)
+
+  return markup.slice(cardStart, cardEnd)
+}
+
 describe('uniRouters home model showcase', () => {
   test('renders five model cards and all GPT Image 2 pricing lanes', async () => {
     const markup = await renderModelCards('en', { en: englishMessages })
@@ -64,5 +76,25 @@ describe('uniRouters home model showcase', () => {
     assert.match(markup, /图片输入/)
     assert.match(markup, /图片输出/)
     assert.match(markup, /我们的售价/)
+  })
+
+  test('replaces the Gemini showcase with Opus 5 and Opus 4.8 at 20% of official pricing', async () => {
+    const markup = await renderModelCards('en', { en: englishMessages })
+
+    assert.doesNotMatch(markup, /gemini-3\.1-pro|gemini-3\.6-flash/)
+
+    for (const modelName of ['claude-opus-5', 'claude-opus-4-8']) {
+      const card = getModelCard(markup, modelName)
+      assert.match(card, /Anthropic/)
+      assert.match(card, /Input[\s\S]*?\$5\.00[\s\S]*?\$1\.00/)
+      assert.match(card, /Output[\s\S]*?\$25\.00[\s\S]*?\$5\.00/)
+    }
+  })
+
+  test('renders the Opus descriptions in Chinese', async () => {
+    const markup = await renderModelCards('zhCN', { zhCN: chineseMessages })
+
+    assert.match(getModelCard(markup, 'claude-opus-5'), /深度推理/)
+    assert.match(getModelCard(markup, 'claude-opus-4-8'), /智能体工作流/)
   })
 })
