@@ -17,6 +17,7 @@ var ModelList = []string{
 	"claude-opus-4-1-20250805",
 	"claude-opus-4-1-20250805-thinking",
 	"claude-sonnet-4-5-20250929",
+	"claude-sonnet-4-5",
 	"claude-sonnet-4-5-20250929-thinking",
 	"claude-opus-4-5",
 	"claude-opus-4-5-20251101",
@@ -42,6 +43,7 @@ var ModelList = []string{
 	"claude-opus-4-8-low",
 	"claude-opus-4-8-thinking",
 	"claude-opus-5",
+	"claude-sonnet-5",
 }
 
 var ChannelName = "claude"

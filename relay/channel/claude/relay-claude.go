@@ -144,7 +144,7 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 			(!claudeInfo.Done && fallback.CompletionTokens > claudeInfo.Usage.CompletionTokens) {
 			claudeInfo.Usage.CompletionTokens = fallback.CompletionTokens
 		}
-		if claudeInfo.Usage.PromptTokens == 0 {
+		if !hasClaudePromptUsage(claudeInfo.Usage) {
 			claudeInfo.Usage.PromptTokens = fallback.PromptTokens
 		}
 		claudeInfo.Usage.TotalTokens = claudeInfo.Usage.PromptTokens + claudeInfo.Usage.CompletionTokens
@@ -169,6 +169,17 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 		}
 		helper.Done(c)
 	}
+}
+
+func hasClaudePromptUsage(usage *dto.Usage) bool {
+	if usage == nil {
+		return false
+	}
+	return usage.PromptTokens > 0 ||
+		usage.PromptTokensDetails.CachedTokens > 0 ||
+		usage.PromptTokensDetails.CachedCreationTokens > 0 ||
+		usage.ClaudeCacheCreation5mTokens > 0 ||
+		usage.ClaudeCacheCreation1hTokens > 0
 }
 
 func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {

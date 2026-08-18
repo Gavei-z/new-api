@@ -1,17 +1,46 @@
 package claude
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/dto"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service/relayconvert"
+	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func commonPointer[T any](value T) *T {
 	return &value
+}
+
+func TestHandleStreamFinalResponseDoesNotDoubleCountFullyCachedPrompt(t *testing.T) {
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+	info := &relaycommon.RelayInfo{
+		RelayFormat: types.RelayFormatClaude,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "claude-opus-5",
+		},
+	}
+	info.SetEstimatePromptTokens(999)
+	claudeInfo := &ClaudeResponseInfo{
+		Usage: &dto.Usage{
+			PromptTokensDetails: dto.InputTokenDetails{
+				CachedTokens: 999,
+			},
+		},
+	}
+
+	HandleStreamFinalResponse(ctx, info, claudeInfo)
+
+	assert.Equal(t, 0, claudeInfo.Usage.PromptTokens)
+	assert.Equal(t, 999, claudeInfo.Usage.PromptTokensDetails.CachedTokens)
+	require.NotNil(t, claudeInfo.Usage.BillingUsage)
 }
 
 func TestResponseOpenAI2ClaudeToolUseInputIsObject(t *testing.T) {
