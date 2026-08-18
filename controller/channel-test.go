@@ -738,6 +738,8 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 			maxTokens := uint(16)
 			if constant.EndpointType(endpointType) == constant.EndpointTypeGemini {
 				maxTokens = 3000
+			} else if channel != nil && channel.Type == constant.ChannelTypeAnthropic && helper.RequiresAnthropicMinimumMaxTokens(model) {
+				maxTokens = helper.AnthropicMinimumMaxTokens
 			}
 			req := &dto.GeneralOpenAIRequest{
 				Model:  model,
@@ -810,7 +812,9 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 		testRequest.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
 	}
 
-	if dto.IsOpenAIReasoningOModel(model) {
+	if channel != nil && channel.Type == constant.ChannelTypeAnthropic && helper.RequiresAnthropicMinimumMaxTokens(model) {
+		testRequest.MaxTokens = lo.ToPtr(helper.AnthropicMinimumMaxTokens)
+	} else if dto.IsOpenAIReasoningOModel(model) {
 		testRequest.MaxCompletionTokens = lo.ToPtr(uint(16))
 	} else if strings.Contains(model, "thinking") {
 		if !strings.Contains(model, "claude") {

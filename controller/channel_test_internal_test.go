@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -54,6 +55,39 @@ func TestValidateChannelProxy(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestBuildTestRequestUsesAnthropicMinimumMaxTokensForDualSourceClaudeModels(t *testing.T) {
+	models := []string{
+		"claude-opus-4-5-20251101",
+		"claude-opus-4-6",
+		"claude-opus-4-7",
+		"claude-opus-4-8",
+		"claude-opus-5",
+		"claude-sonnet-4-5-20250929",
+		"claude-sonnet-4-6",
+		"claude-sonnet-5",
+	}
+	channel := &model.Channel{Type: constant.ChannelTypeAnthropic}
+
+	for _, modelName := range models {
+		for _, endpointType := range []string{"", string(constant.EndpointTypeAnthropic), string(constant.EndpointTypeOpenAI)} {
+			t.Run(modelName+"/"+endpointType, func(t *testing.T) {
+				request, ok := buildTestRequest(modelName, endpointType, channel, false).(*dto.GeneralOpenAIRequest)
+				require.True(t, ok)
+				require.NotNil(t, request.MaxTokens)
+				require.Equal(t, helper.AnthropicMinimumMaxTokens, *request.MaxTokens)
+			})
+		}
+	}
+
+	request, ok := buildTestRequest("claude-opus-4-5", "", channel, false).(*dto.GeneralOpenAIRequest)
+	require.True(t, ok)
+	require.EqualValues(t, 16, *request.MaxTokens)
+
+	request, ok = buildTestRequest("claude-opus-4-6", "", &model.Channel{Type: constant.ChannelTypeOpenAI}, false).(*dto.GeneralOpenAIRequest)
+	require.True(t, ok)
+	require.EqualValues(t, 16, *request.MaxTokens)
 }
 
 func TestCopyChannelRejectsInvalidLegacyProxySettings(t *testing.T) {

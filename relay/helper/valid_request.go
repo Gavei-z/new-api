@@ -4,11 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -118,6 +120,45 @@ func GetAndValidateEmbeddingRequest(c *gin.Context, relayMode int) (*dto.Embeddi
 // pre-consume quota math (preConsumedTokens * ratio); an unbounded value can
 // overflow the conversion and corrupt billing.
 const maxTokensLimit = math.MaxInt32 / 2
+
+// AnthropicMinimumMaxTokens is the smallest non-zero output-token limit that
+// the exact dual-source Claude models accept on Anthropic channels.
+const AnthropicMinimumMaxTokens uint = 1024
+
+// RequiresAnthropicMinimumMaxTokens reports whether the named model is one of
+// the dual-source Claude models whose Anthropic upstream requires a minimum
+// max_tokens value.
+func RequiresAnthropicMinimumMaxTokens(model string) bool {
+	switch model {
+	case "claude-opus-4-5-20251101",
+		"claude-opus-4-6",
+		"claude-opus-4-7",
+		"claude-opus-4-8",
+		"claude-opus-5",
+		"claude-sonnet-4-5-20250929",
+		"claude-sonnet-4-6",
+		"claude-sonnet-5":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateAnthropicMinimumMaxTokens(c *gin.Context, model string, maxTokens uint) error {
+	if common.GetContextKeyInt(c, constant.ContextKeyChannelType) != constant.ChannelTypeAnthropic ||
+		!RequiresAnthropicMinimumMaxTokens(model) ||
+		maxTokens == 0 ||
+		maxTokens >= AnthropicMinimumMaxTokens {
+		return nil
+	}
+
+	return types.NewErrorWithStatusCode(
+		fmt.Errorf("max_tokens must be 0 or at least %d for model %s on Anthropic channels", AnthropicMinimumMaxTokens, model),
+		types.ErrorCodeInvalidRequest,
+		http.StatusBadRequest,
+		types.ErrOptionWithSkipRetry(),
+	)
+}
 
 func exceedsMaxTokensLimit(values ...*uint) bool {
 	for _, v := range values {
@@ -279,6 +320,11 @@ func GetAndValidateClaudeRequest(c *gin.Context) (textRequest *dto.ClaudeRequest
 	if exceedsMaxTokensLimit(textRequest.MaxTokens, textRequest.MaxTokensToSample) {
 		return nil, errors.New("max_tokens is invalid")
 	}
+	for _, maxTokens := range []*uint{textRequest.MaxTokens, textRequest.MaxTokensToSample} {
+		if err = validateAnthropicMinimumMaxTokens(c, textRequest.Model, lo.FromPtrOr(maxTokens, uint(0))); err != nil {
+			return nil, err
+		}
+	}
 
 	//if textRequest.Stream {
 	//	relayInfo.IsStream = true
@@ -303,6 +349,11 @@ func GetAndValidateTextRequest(c *gin.Context, relayMode int) (*dto.GeneralOpenA
 
 	if exceedsMaxTokensLimit(textRequest.MaxTokens, textRequest.MaxCompletionTokens) {
 		return nil, errors.New("max_tokens is invalid")
+	}
+	if relayMode == relayconstant.RelayModeChatCompletions {
+		if err = validateAnthropicMinimumMaxTokens(c, textRequest.Model, textRequest.GetMaxTokens()); err != nil {
+			return nil, err
+		}
 	}
 	if textRequest.Model == "" {
 		return nil, errors.New("model is required")
