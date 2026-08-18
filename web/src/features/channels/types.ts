@@ -99,6 +99,10 @@ export interface ChannelOtherSettings {
   allow_include_obfuscation?: boolean
   allow_inference_geo?: boolean
   allow_speed?: boolean
+  claude_input_billing_mode?:
+    | 'upstream'
+    | 'local_estimate_audit'
+    | 'local_estimate'
   claude_beta_query?: boolean
   disable_task_polling_sleep?: boolean
   upstream_model_update_check_enabled?: boolean

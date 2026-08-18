@@ -635,6 +635,9 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     if ('claude_beta_query' in settingsObj) {
       delete settingsObj.claude_beta_query
     }
+    if ('claude_input_billing_mode' in settingsObj) {
+      delete settingsObj.claude_input_billing_mode
+    }
   }
 
   settingsObj.disable_task_polling_sleep =

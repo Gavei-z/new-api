@@ -44,6 +44,7 @@ type textQuotaSummary struct {
 	CacheCreationRatio5m     float64
 	CacheCreationRatio1h     float64
 	Quota                    int
+	HasBillableTokens        bool
 	IsClaudeUsageSemantic    bool
 	UsageSemantic            string
 	WebSearchPrice           float64
@@ -213,6 +214,12 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.CacheCreationTokens1h = usage.ClaudeCacheCreation1hTokens
 	summary.ImageTokens = usage.PromptTokensDetails.ImageTokens
 	summary.AudioTokens = usage.PromptTokensDetails.AudioTokens
+	summary.HasBillableTokens = summary.PromptTokens > 0 ||
+		summary.CompletionTokens > 0 ||
+		summary.CacheTokens > 0 ||
+		summary.CacheCreationTokens > 0 ||
+		summary.CacheCreationTokens5m > 0 ||
+		summary.CacheCreationTokens1h > 0
 	legacyClaudeDerived := isLegacyClaudeDerivedOpenAIUsage(relayInfo, usage)
 	isOpenRouterClaudeBilling := relayInfo.ChannelMeta != nil &&
 		relayInfo.ChannelType == constant.ChannelTypeOpenRouter &&
@@ -325,7 +332,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		noteQuotaClamp(relayInfo, clamp)
 	}
 
-	if summary.TotalTokens == 0 {
+	if !summary.HasBillableTokens {
 		summary.Quota = 0
 	} else if !ratio.IsZero() && summary.Quota == 0 {
 		summary.Quota = 1
@@ -336,7 +343,19 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 
 func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) string {
 	if usage != nil && usage.UsageSemantic != "" {
-		return usage.UsageSemantic
+		semantic := strings.TrimSpace(usage.UsageSemantic)
+		if semantic != "" {
+			switch {
+			case strings.EqualFold(semantic, dto.BillingUsageSemanticAnthropic):
+				return dto.BillingUsageSemanticAnthropic
+			case strings.EqualFold(semantic, dto.BillingUsageSemanticOpenAI):
+				return dto.BillingUsageSemanticOpenAI
+			case strings.EqualFold(semantic, dto.BillingUsageSemanticGemini):
+				return dto.BillingUsageSemanticGemini
+			default:
+				return semantic
+			}
+		}
 	}
 	if relayInfo != nil && relayInfo.GetFinalRequestRelayFormat() == types.RelayFormatClaude {
 		return "anthropic"
@@ -346,12 +365,21 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
 	originUsage := usage
-	billingUsage := effectiveBillingUsage(usage)
+	upstreamBillingUsage := effectiveBillingUsage(usage)
 	if usage == nil {
 		extraContent = append(extraContent, "上游无计费信息")
 	}
 	if originUsage != nil {
-		ObserveChannelAffinityUsageCacheByRelayFormat(ctx, billingUsage, relayInfo.GetFinalRequestRelayFormat())
+		ObserveChannelAffinityUsageCacheByRelayFormat(ctx, upstreamBillingUsage, relayInfo.GetFinalRequestRelayFormat())
+	}
+	billingUsage, claudeInputAudit := resolveChannelTextBillingUsage(relayInfo, upstreamBillingUsage)
+	if claudeInputAudit != nil && strings.HasPrefix(claudeInputAudit.Status, "fallback_") {
+		logger.LogWarn(ctx, fmt.Sprintf(
+			"Claude local-estimate billing fallback: channel_id=%d status=%s reason=%s",
+			relayInfo.ChannelId,
+			claudeInputAudit.Status,
+			claudeInputAudit.FallbackReason,
+		))
 	}
 
 	adminRejectReason := common.GetContextKeyString(ctx, constant.ContextKeyAdminRejectReason)
@@ -388,7 +416,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		extraContent = append(extraContent, fmt.Sprintf("Image Generation Call 花费 %s", decimal.NewFromFloat(summary.ImageGenerationCallPrice).Mul(decimal.NewFromFloat(summary.GroupRatio)).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).String()))
 	}
 
-	if summary.TotalTokens == 0 {
+	if !summary.HasBillableTokens {
 		extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
 	} else {
@@ -425,6 +453,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		other = GenerateTextOtherInfo(ctx, relayInfo, summary.ModelRatio, summary.GroupRatio, summary.CompletionRatio, summary.CacheTokens, summary.CacheRatio, summary.ModelPrice, relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio)
 	}
 	appendUsageBillingPathForLog(other, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens), originUsage)
+	appendClaudeInputBillingAuditForLog(other, claudeInputAudit)
 	if adminRejectReason != "" {
 		other["reject_reason"] = adminRejectReason
 	}

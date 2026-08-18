@@ -976,6 +976,18 @@ func (channel *Channel) ValidateSettings() error {
 			return fmt.Errorf("advanced custom channels require a %s route when upstream model update checks are enabled", dto.AdvancedCustomModelListPath)
 		}
 	}
+	if channelOtherSettings.ClaudeInputBillingMode != "" {
+		if channel.Type != constant.ChannelTypeAnthropic {
+			return fmt.Errorf("claude_input_billing_mode is only supported for Anthropic channels")
+		}
+		switch channelOtherSettings.ClaudeInputBillingMode {
+		case dto.ClaudeInputBillingModeUpstream,
+			dto.ClaudeInputBillingModeLocalEstimateAudit,
+			dto.ClaudeInputBillingModeLocalEstimate:
+		default:
+			return fmt.Errorf("invalid claude_input_billing_mode: %s", channelOtherSettings.ClaudeInputBillingMode)
+		}
+	}
 	return nil
 }
 

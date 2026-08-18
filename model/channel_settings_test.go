@@ -66,3 +66,35 @@ func TestAdvancedCustomChannelRequiresModelListRouteOnlyWhenUpdateChecksEnabled(
 		})
 	}
 }
+
+func TestClaudeInputBillingModeValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		channelType int
+		mode        dto.ClaudeInputBillingMode
+		wantError   string
+	}{
+		{name: "empty mode remains backward compatible", channelType: constant.ChannelTypeAnthropic},
+		{name: "explicit upstream", channelType: constant.ChannelTypeAnthropic, mode: dto.ClaudeInputBillingModeUpstream},
+		{name: "audit", channelType: constant.ChannelTypeAnthropic, mode: dto.ClaudeInputBillingModeLocalEstimateAudit},
+		{name: "apply", channelType: constant.ChannelTypeAnthropic, mode: dto.ClaudeInputBillingModeLocalEstimate},
+		{name: "unknown mode", channelType: constant.ChannelTypeAnthropic, mode: "unknown", wantError: "invalid claude_input_billing_mode"},
+		{name: "non Anthropic channel", channelType: constant.ChannelTypeOpenAI, mode: dto.ClaudeInputBillingModeLocalEstimate, wantError: "only supported for Anthropic"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channel := &Channel{Type: tt.channelType}
+			channel.SetOtherSettings(dto.ChannelOtherSettings{ClaudeInputBillingMode: tt.mode})
+
+			err := channel.ValidateSettings()
+			if tt.wantError == "" {
+				require.NoError(t, err)
+				assert.Equal(t, tt.mode, channel.GetOtherSettings().ClaudeInputBillingMode)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantError)
+		})
+	}
+}
