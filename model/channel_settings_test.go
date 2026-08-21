@@ -98,3 +98,43 @@ func TestClaudeInputBillingModeValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestKiroCreditBillingSettingsValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		channelType int
+		mode        dto.KiroCreditBillingMode
+		price       float64
+		wantError   string
+	}{
+		{name: "disabled remains backward compatible", channelType: constant.ChannelTypeAnthropic},
+		{name: "Anthropic calibrated actual credits", channelType: constant.ChannelTypeAnthropic, mode: dto.KiroCreditBillingModeActualCalibrated, price: 0.10},
+		{name: "compatible with local estimate fallback", channelType: constant.ChannelTypeAnthropic, mode: dto.KiroCreditBillingModeActualCalibrated, price: 0.10},
+		{name: "unknown mode", channelType: constant.ChannelTypeAnthropic, mode: "estimated", price: 0.10, wantError: "invalid kiro_credit_billing_mode"},
+		{name: "missing mode", channelType: constant.ChannelTypeAnthropic, price: 0.10, wantError: "invalid kiro_credit_billing_mode"},
+		{name: "missing price", channelType: constant.ChannelTypeAnthropic, mode: dto.KiroCreditBillingModeActualCalibrated, wantError: "price_per_credit"},
+		{name: "negative price", channelType: constant.ChannelTypeAnthropic, mode: dto.KiroCreditBillingModeActualCalibrated, price: -0.10, wantError: "price_per_credit"},
+		{name: "non Anthropic channel", channelType: constant.ChannelTypeOpenAI, mode: dto.KiroCreditBillingModeActualCalibrated, price: 0.10, wantError: "only supported for Anthropic"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channel := &Channel{Type: tt.channelType}
+			channel.SetOtherSettings(dto.ChannelOtherSettings{
+				KiroCreditBillingMode: tt.mode,
+				PricePerCredit:        tt.price,
+			})
+
+			err := channel.ValidateSettings()
+			if tt.wantError == "" {
+				require.NoError(t, err)
+				settings := channel.GetOtherSettings()
+				assert.Equal(t, tt.mode, settings.KiroCreditBillingMode)
+				assert.Equal(t, tt.price, settings.PricePerCredit)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantError)
+		})
+	}
+}

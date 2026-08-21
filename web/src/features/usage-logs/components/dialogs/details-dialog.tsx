@@ -223,6 +223,7 @@ function BillingBreakdown(props: {
   const { t } = useTranslation()
   const { log, other, isAdmin } = props
   const isPerCall = isPerCallBilling(other.model_price)
+  const isKiroCredits = other.billing_basis === 'kiro_credits'
   const isClaude = other.claude === true
   const isTieredExpr = other.billing_mode === 'tiered_expr'
   const tieredSummary = getTieredBillingSummary(other)
@@ -230,6 +231,19 @@ function BillingBreakdown(props: {
   const rows: Array<{ label: string; value: string }> = []
   const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
   const fmtPrice = (usd: number) => formatBillingCurrencyFromUSD(usd, priceOpts)
+  const fmtUSD = (usd: number | undefined) => {
+    if (usd == null || !Number.isFinite(usd)) return '-'
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 8,
+    }).format(usd)
+  }
+  const fmtCredits = (credits: number | undefined) => {
+    if (credits == null || !Number.isFinite(credits)) return '-'
+    return credits.toLocaleString(undefined, { maximumFractionDigits: 8 })
+  }
   const baseInputUSD = other.model_ratio != null ? other.model_ratio * 2.0 : 0
 
   if (isTieredExpr) {
@@ -265,7 +279,10 @@ function BillingBreakdown(props: {
       })
     }
   } else {
-    rows.push({ label: t('Billing Mode'), value: t('Per-token') })
+    rows.push({
+      label: t('Billing Mode'),
+      value: isKiroCredits ? t('Credit-based') : t('Per-token'),
+    })
     if (other.model_ratio != null) {
       rows.push({
         label: t('Input'),
@@ -378,6 +395,30 @@ function BillingBreakdown(props: {
       label: t('Audio Input Price'),
       value: fmtPrice(other.audio_input_price),
     })
+  }
+
+  if (isKiroCredits) {
+    rows.push(
+      {
+        label: t('Credits Used'),
+        value: fmtCredits(other.credits_used),
+      },
+      {
+        label: t('Price per Credit'),
+        value: `${fmtUSD(other.price_per_credit)}/credit`,
+      },
+      {
+        label: t('Charged Amount'),
+        value: fmtUSD(other.charged_usd),
+      },
+      {
+        label: t('Usage Type'),
+        value:
+          other.usage_type === 'billing_equivalent'
+            ? t('Billing-equivalent usage')
+            : other.usage_type || '-',
+      }
+    )
   }
 
   if (isAdmin && other.admin_info) {

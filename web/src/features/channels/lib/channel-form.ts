@@ -638,6 +638,12 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     if ('claude_input_billing_mode' in settingsObj) {
       delete settingsObj.claude_input_billing_mode
     }
+    if ('kiro_credit_billing_mode' in settingsObj) {
+      delete settingsObj.kiro_credit_billing_mode
+    }
+    if ('price_per_credit' in settingsObj) {
+      delete settingsObj.price_per_credit
+    }
   }
 
   settingsObj.disable_task_polling_sleep =

@@ -103,6 +103,8 @@ export interface ChannelOtherSettings {
     | 'upstream'
     | 'local_estimate_audit'
     | 'local_estimate'
+  kiro_credit_billing_mode?: 'actual_calibrated'
+  price_per_credit?: number
   claude_beta_query?: boolean
   disable_task_polling_sleep?: boolean
   upstream_model_update_check_enabled?: boolean

@@ -365,14 +365,34 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
 	originUsage := usage
-	upstreamBillingUsage := effectiveBillingUsage(usage)
+	rawBillingUsage := effectiveBillingUsage(KiroRawUsageSnapshot(usage))
 	if usage == nil {
 		extraContent = append(extraContent, "上游无计费信息")
 	}
 	if originUsage != nil {
-		ObserveChannelAffinityUsageCacheByRelayFormat(ctx, upstreamBillingUsage, relayInfo.GetFinalRequestRelayFormat())
+		ObserveChannelAffinityUsageCacheByRelayFormat(ctx, rawBillingUsage, relayInfo.GetFinalRequestRelayFormat())
 	}
-	billingUsage, claudeInputAudit := resolveChannelTextBillingUsage(relayInfo, upstreamBillingUsage)
+	kiroCalibration := CalibrateKiroUsage(relayInfo, usage)
+	upstreamBillingUsage := effectiveBillingUsage(usage)
+	var billingUsage *dto.Usage
+	var claudeInputAudit *claudeInputBillingAudit
+	if kiroCalibration != nil && kiroCalibration.Applied {
+		billingUsage = upstreamBillingUsage
+		mode := relayInfo.ChannelOtherSettings.ClaudeInputBillingMode
+		if mode == dto.ClaudeInputBillingModeLocalEstimate || mode == dto.ClaudeInputBillingModeLocalEstimateAudit {
+			buckets := canonicalClaudeInputBuckets(billingUsage)
+			claudeInputAudit = &claudeInputBillingAudit{
+				Mode:          mode,
+				Status:        "bypassed_by_kiro_credits",
+				LocalEstimate: relayInfo.GetEstimatePromptTokens(),
+				Upstream:      buckets,
+				Candidate:     buckets,
+				Billed:        buckets,
+			}
+		}
+	} else {
+		billingUsage, claudeInputAudit = resolveChannelTextBillingUsage(relayInfo, upstreamBillingUsage)
+	}
 	if claudeInputAudit != nil && strings.HasPrefix(claudeInputAudit.Status, "fallback_") {
 		logger.LogWarn(ctx, fmt.Sprintf(
 			"Claude local-estimate billing fallback: channel_id=%d status=%s reason=%s",
@@ -399,6 +419,40 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 			summary.Quota = composeTieredTextQuota(relayInfo, summary, tieredQuota, tieredRes)
 		}
 	}
+	kiroSettled := false
+	summary.Quota, kiroSettled = settleKiroCalibratedQuota(summary.Quota, kiroCalibration)
+	var kiroReserveErr error
+	if kiroSettled {
+		summary.Quota, kiroReserveErr = reserveKiroCalibratedQuota(relayInfo, kiroCalibration)
+		if kiroReserveErr != nil {
+			logger.LogError(ctx, fmt.Sprintf(
+				"Kiro credit reserve failed: channel_id=%d target_quota=%d charged_quota=%d error=%s",
+				relayInfo.ChannelId,
+				kiroCalibration.TargetQuota,
+				kiroCalibration.ChargedQuota,
+				kiroReserveErr.Error(),
+			))
+		}
+	}
+	if kiroCalibration != nil {
+		if strings.HasPrefix(kiroCalibration.Status, "fallback_") {
+			logger.LogWarn(ctx, fmt.Sprintf(
+				"Kiro credit billing fallback: channel_id=%d status=%s reason=%s",
+				relayInfo.ChannelId,
+				kiroCalibration.Status,
+				kiroCalibration.FallbackReason,
+			))
+		} else {
+			logger.LogInfo(ctx, fmt.Sprintf(
+				"Kiro calibrated billing: channel_id=%d status=%s target_quota=%d replayed_quota=%d final_quota=%d",
+				relayInfo.ChannelId,
+				kiroCalibration.Status,
+				kiroCalibration.TargetQuota,
+				kiroCalibration.ReplayedQuota,
+				summary.Quota,
+			))
+		}
+	}
 
 	if summary.WebSearchCallCount > 0 {
 		extraContent = append(extraContent, fmt.Sprintf("Web Search 调用 %d 次，调用花费 %s", summary.WebSearchCallCount, decimal.NewFromFloat(summary.WebSearchPrice).Mul(decimal.NewFromInt(int64(summary.WebSearchCallCount))).Div(decimal.NewFromInt(1000)).Mul(decimal.NewFromFloat(summary.GroupRatio)).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).String()))
@@ -416,16 +470,25 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		extraContent = append(extraContent, fmt.Sprintf("Image Generation Call 花费 %s", decimal.NewFromFloat(summary.ImageGenerationCallPrice).Mul(decimal.NewFromFloat(summary.GroupRatio)).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).String()))
 	}
 
-	if !summary.HasBillableTokens {
+	settlementErr := SettleBilling(ctx, relayInfo, summary.Quota)
+	if settlementErr != nil {
+		logger.LogError(ctx, "error settling billing: "+settlementErr.Error())
+	}
+	if kiroCalibration != nil && kiroCalibration.Applied {
+		switch {
+		case settlementErr != nil:
+			kiroCalibration.SettlementStatus = kiroSettlementStatusSettlementFailed
+		case kiroReserveErr == nil:
+			kiroCalibration.SettlementStatus = kiroSettlementStatusSettled
+		}
+	}
+
+	if !summary.HasBillableTokens && !kiroSettled {
 		extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
 	} else {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
-	}
-
-	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
-		logger.LogError(ctx, "error settling billing: "+err.Error())
 	}
 
 	logModel := summary.ModelName
@@ -454,6 +517,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	appendUsageBillingPathForLog(other, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens), originUsage)
 	appendClaudeInputBillingAuditForLog(other, claudeInputAudit)
+	appendKiroCreditBillingAuditForLog(other, kiroCalibration)
 	if adminRejectReason != "" {
 		other["reject_reason"] = adminRejectReason
 	}
@@ -531,7 +595,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
 	})
+	perfCompletionTokens := summary.CompletionTokens
+	if kiroCalibration != nil {
+		perfCompletionTokens = kiroCalibration.RawUsage.OutputTokens
+	}
 	gopool.Go(func() {
-		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
+		perfmetrics.RecordRelaySample(relayInfo, true, int64(perfCompletionTokens))
 	})
 }

@@ -988,6 +988,17 @@ func (channel *Channel) ValidateSettings() error {
 			return fmt.Errorf("invalid claude_input_billing_mode: %s", channelOtherSettings.ClaudeInputBillingMode)
 		}
 	}
+	if channelOtherSettings.KiroCreditBillingMode != "" || channelOtherSettings.PricePerCredit != 0 {
+		if channel.Type != constant.ChannelTypeAnthropic {
+			return fmt.Errorf("kiro credit billing is only supported for Anthropic channels")
+		}
+		if channelOtherSettings.KiroCreditBillingMode != dto.KiroCreditBillingModeActualCalibrated {
+			return fmt.Errorf("invalid kiro_credit_billing_mode: %s", channelOtherSettings.KiroCreditBillingMode)
+		}
+		if !channelOtherSettings.HasValidKiroCreditPrice() {
+			return fmt.Errorf("price_per_credit must be a finite number greater than zero when Kiro credit billing is enabled")
+		}
+	}
 	return nil
 }
 

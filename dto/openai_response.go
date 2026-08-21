@@ -241,6 +241,60 @@ type Usage struct {
 
 	// OpenRouter Params
 	Cost any `json:"cost,omitempty"`
+
+	// KiroMetering is internal billing metadata extracted from the reserved
+	// top-level x_kiro_metering response extension. It must never be serialized
+	// to downstream clients.
+	KiroMetering *KiroMeteringUsage `json:"-"`
+}
+
+// KiroMeteringUsage tracks a request's actual Kiro credit observation. Stream
+// events are never summed: CreditsUsed holds the first valid terminal value,
+// while the counters make duplicate/conflicting terminal events auditable.
+type KiroMeteringUsage struct {
+	CreditsUsed       float64
+	Valid             bool
+	InvalidReason     string
+	EventCount        int
+	InvalidEventCount int
+	Duplicate         bool
+	Conflict          bool
+	Calibration       *KiroCreditCalibration
+}
+
+// KiroUsageBuckets is an internal snapshot of Anthropic billing dimensions.
+// InputTokens means uncached input; cache writes are normalized into the 5m
+// and 1h buckets so their distinct prices remain replayable.
+type KiroUsageBuckets struct {
+	InputTokens           int
+	OutputTokens          int
+	CacheReadInputTokens  int
+	CacheCreationTokens   int
+	CacheCreation5mTokens int
+	CacheCreation1hTokens int
+}
+
+// KiroCreditCalibration captures both the authoritative credits charge and
+// the nearest integer-token representation returned to clients. Applied is
+// true only when the request may settle from TargetQuota.
+type KiroCreditCalibration struct {
+	Applied                bool
+	Status                 string
+	Method                 string
+	FallbackReason         string
+	RawUsage               KiroUsageBuckets
+	CalibratedUsage        KiroUsageBuckets
+	CreditsUsed            float64
+	PricePerCredit         float64
+	TargetUSD              float64
+	ChargedUSD             float64
+	GroupRatio             float64
+	TargetQuotaBeforeGroup float64
+	TargetQuota            int
+	ReplayedQuota          int
+	RoundingResidualQuota  int
+	ChargedQuota           int
+	SettlementStatus       string
 }
 
 type OpenAIVideoResponse struct {

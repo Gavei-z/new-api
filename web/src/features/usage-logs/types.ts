@@ -205,6 +205,11 @@ export interface LogOtherData {
   is_system_prompt_overwritten?: boolean
   po?: string[]
   billing_source?: string
+  billing_basis?: 'kiro_credits' | string
+  credits_used?: number
+  price_per_credit?: number
+  charged_usd?: number
+  usage_type?: 'billing_equivalent' | string
   group?: string
   stream_status?: {
     status?: string
