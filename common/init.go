@@ -86,6 +86,7 @@ func InitEnv() {
 	// Initialize variables from constants.go that were using environment variables
 	DebugEnabled = os.Getenv("DEBUG") == "true"
 	MemoryCacheEnabled = os.Getenv("MEMORY_CACHE_ENABLED") == "true"
+	ClaudeForceCFJWL = GetEnvOrDefaultBool("CLAUDE_FORCE_CFJWL_ENABLED", false)
 	IsMasterNode = os.Getenv("NODE_TYPE") != "slave"
 	initNodeNameIdentity()
 	TLSInsecureSkipVerify = GetEnvOrDefaultBool("TLS_INSECURE_SKIP_VERIFY", false)

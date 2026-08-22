@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -106,6 +107,10 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
 }
 
 func GetChannel(group string, model string, retry int, requestPath string) (*Channel, error) {
+	if common.ShouldForceClaudeToCFJWL(model) {
+		return getForcedClaudeChannel(group, model)
+	}
+
 	var abilities []Ability
 
 	var err error = nil
@@ -144,6 +149,52 @@ func GetChannel(group string, model string, retry int, requestPath string) (*Cha
 	}
 	err = DB.First(&channel, "id = ?", channel.Id).Error
 	return &channel, err
+}
+
+// getForcedClaudeChannel selects the configured provider before applying the
+// regular cross-channel priority rules. This keeps the route lock effective
+// even when the forced channel has a lower priority than another provider.
+func getForcedClaudeChannel(group string, modelName string) (*Channel, error) {
+	for _, candidateModel := range forcedClaudeModelCandidates(modelName) {
+		var channel Channel
+		err := DB.Model(&Channel{}).
+			Joins("JOIN abilities ON abilities.channel_id = channels.id").
+			Where("abilities."+commonGroupCol+" = ? AND abilities.model = ? AND abilities.enabled = ?", group, candidateModel, true).
+			Where("channels.name = ? AND channels.type = ? AND channels.status = ?", common.ClaudeCFJWLChannelName, constant.ChannelTypeAnthropic, common.ChannelStatusEnabled).
+			Order("abilities.priority DESC").
+			First(&channel).Error
+		if err == nil {
+			return &channel, nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+	}
+	return nil, nil
+}
+
+func forcedClaudeModelCandidates(modelName string) []string {
+	candidates := make([]string, 0, 4)
+	seen := make(map[string]struct{}, 4)
+	add := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			return
+		}
+		if _, exists := seen[candidate]; exists {
+			return
+		}
+		seen[candidate] = struct{}{}
+		candidates = append(candidates, candidate)
+	}
+
+	rawModel := strings.TrimSpace(modelName)
+	add(rawModel)
+	add(ratio_setting.FormatMatchingModelName(rawModel))
+	canonicalModel := common.ClaudeRouteModelName(rawModel)
+	add(canonicalModel)
+	add(ratio_setting.FormatMatchingModelName(canonicalModel))
+	return candidates
 }
 
 // filterAbilitiesByRequestPathAndModel restricts candidates by request path and

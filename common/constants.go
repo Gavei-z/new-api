@@ -90,6 +90,12 @@ var EmailLoginAuthServerList = []string{
 var DebugEnabled bool
 var MemoryCacheEnabled bool
 
+// ClaudeForceCFJWL routes every Claude request through the dedicated
+// cfjwlpro-claude channel when enabled. It is initialized once at startup.
+var ClaudeForceCFJWL bool
+
+const ClaudeCFJWLChannelName = "cfjwlpro-claude"
+
 var LogConsumeEnabled = true
 
 var TLSInsecureSkipVerify bool

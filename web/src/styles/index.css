@@ -190,6 +190,216 @@ For commercial licensing, please contact support@quantumnous.com
   }
 }
 
+/* Public-home brand entrance: a short technical boot sequence that resolves
+ * into the live header brand position. Geometry is calculated in React so the
+ * same sequence lands correctly at every viewport width. */
+.brand-entrance-screen {
+  background:
+    radial-gradient(
+      circle at 50% 48%,
+      rgba(85, 112, 255, 0.2),
+      transparent 28%
+    ),
+    radial-gradient(
+      circle at 50% 52%,
+      rgba(34, 211, 238, 0.08),
+      transparent 44%
+    ),
+    #070912;
+  isolation: isolate;
+}
+
+.brand-entrance-screen::before {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 20%,
+    rgba(126, 156, 255, 0.07) 48%,
+    transparent 76%
+  );
+  content: '';
+  animation: brand-entrance-light-sweep 1.35s ease-out both;
+}
+
+.brand-entrance-grid {
+  background-image:
+    linear-gradient(rgba(123, 146, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(123, 146, 255, 0.07) 1px, transparent 1px);
+  background-position: center;
+  background-size: clamp(2.5rem, 5vw, 4rem) clamp(2.5rem, 5vw, 4rem);
+  mask-image: radial-gradient(circle at center, black 0%, transparent 72%);
+  opacity: 0;
+  transform: perspective(32rem) rotateX(58deg) scale(1.5);
+  animation: brand-entrance-grid-in 1.2s ease-out 120ms both;
+}
+
+.brand-entrance-scan {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(103, 232, 249, 0.75),
+    transparent
+  );
+  box-shadow: 0 0 1.5rem rgba(96, 165, 250, 0.7);
+  opacity: 0;
+  animation: brand-entrance-scan 1.15s ease-in-out 180ms both;
+}
+
+.brand-entrance-orbit {
+  top: 50%;
+  left: 50%;
+  border: 1px solid rgba(142, 165, 255, 0.22);
+  border-block-color: rgba(103, 232, 249, 0.5);
+  border-radius: 9999px;
+  box-shadow:
+    inset 0 0 1.5rem rgba(99, 102, 241, 0.05),
+    0 0 2rem rgba(59, 130, 246, 0.06);
+}
+
+.brand-entrance-orbit-outer {
+  width: min(76vw, 42rem);
+  aspect-ratio: 1.9;
+  animation: brand-entrance-orbit-outer 1.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.brand-entrance-orbit-inner {
+  width: min(54vw, 28rem);
+  aspect-ratio: 1.5;
+  animation: brand-entrance-orbit-inner 1.35s cubic-bezier(0.16, 1, 0.3, 1) 80ms
+    both;
+}
+
+.brand-entrance-mover {
+  transform-origin: left center;
+}
+
+.brand-entrance-lockup {
+  --brand-entrance-logo-size: clamp(5rem, 16vw, 9rem);
+
+  gap: calc(var(--brand-entrance-logo-size) * 0.357142857);
+  opacity: 0;
+  filter: blur(0.75rem) brightness(1.55);
+  animation: brand-entrance-breathe 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.brand-entrance-logo {
+  width: var(--brand-entrance-logo-size);
+  height: var(--brand-entrance-logo-size);
+  border-radius: clamp(1rem, 3vw, 2.25rem);
+  box-shadow:
+    0 0 2rem rgba(99, 102, 241, 0.52),
+    0 0 5rem rgba(56, 189, 248, 0.26);
+}
+
+.brand-entrance-wordmark {
+  background: linear-gradient(105deg, #f8fafc 12%, #c7d2fe 52%, #a5f3fc 92%);
+  background-clip: text;
+  color: transparent;
+  font-size: calc(var(--brand-entrance-logo-size) / 2);
+  line-height: 1;
+  text-shadow: 0 0 2rem rgba(129, 140, 248, 0.24);
+}
+
+@keyframes brand-entrance-breathe {
+  0% {
+    opacity: 0;
+    filter: blur(0.75rem) brightness(1.55);
+    transform: scale(0.86);
+  }
+  24% {
+    opacity: 1;
+    filter: blur(0) brightness(1.15);
+    transform: scale(1);
+  }
+  58% {
+    opacity: 1;
+    filter: blur(0) brightness(1.08);
+    transform: scale(1.045);
+  }
+  82% {
+    opacity: 1;
+    filter: blur(0) brightness(1.02);
+    transform: scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0) brightness(1);
+    transform: scale(1);
+  }
+}
+
+@keyframes brand-entrance-grid-in {
+  0% {
+    opacity: 0;
+    transform: perspective(32rem) rotateX(58deg) scale(1.8);
+  }
+  35% {
+    opacity: 0.75;
+  }
+  100% {
+    opacity: 0.18;
+    transform: perspective(32rem) rotateX(58deg) scale(1.32);
+  }
+}
+
+@keyframes brand-entrance-light-sweep {
+  from {
+    opacity: 0;
+    transform: translateX(-40%);
+  }
+  45% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(38%);
+  }
+}
+
+@keyframes brand-entrance-scan {
+  0% {
+    top: 18%;
+    opacity: 0;
+  }
+  18%,
+  76% {
+    opacity: 0.7;
+  }
+  100% {
+    top: 82%;
+    opacity: 0;
+  }
+}
+
+@keyframes brand-entrance-orbit-outer {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(-10deg) scale(0.6);
+  }
+  38% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(9deg) scale(1.12);
+  }
+}
+
+@keyframes brand-entrance-orbit-inner {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(12deg) scale(0.55);
+  }
+  42% {
+    opacity: 0.8;
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(-8deg) scale(1.18);
+  }
+}
+
 .home-hero-in {
   animation: home-hero-in 600ms ease-out both;
 }
@@ -220,7 +430,13 @@ For commercial licensing, please contact support@quantumnous.com
     scroll-behavior: auto;
   }
   .home-hero-in,
-  .home-orb {
+  .home-orb,
+  .brand-entrance-screen,
+  .brand-entrance-screen::before,
+  .brand-entrance-grid,
+  .brand-entrance-scan,
+  .brand-entrance-orbit,
+  .brand-entrance-lockup {
     animation: none;
   }
 }

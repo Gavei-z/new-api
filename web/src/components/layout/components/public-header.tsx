@@ -154,7 +154,7 @@ export function PublicHeader(props: PublicHeaderProps) {
   if (customLogo) {
     logoContent = customLogo
   }
-  if (loading) {
+  if (loading && !customLogo) {
     logoContent = <Skeleton className='size-full rounded-lg' />
   }
 
@@ -209,12 +209,23 @@ export function PublicHeader(props: PublicHeaderProps) {
     <>
       <PublicHeaderChrome scrolled={scrolled}>
         {/* Logo */}
-        <Link to={homeUrl} className='group flex shrink-0 items-center gap-2.5'>
-          <div className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
+        <Link
+          to={homeUrl}
+          data-slot='public-home-brand'
+          className='group flex shrink-0 items-center gap-2.5'
+        >
+          <div
+            data-slot='public-home-brand-logo'
+            className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'
+          >
             {logoContent}
           </div>
           <span className='text-sm font-semibold tracking-tight'>
-            {loading ? <Skeleton className='h-4 w-16' /> : displaySiteName}
+            {loading && !customSiteName ? (
+              <Skeleton className='h-4 w-16' />
+            ) : (
+              displaySiteName
+            )}
           </span>
         </Link>
 

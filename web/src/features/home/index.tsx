@@ -27,6 +27,7 @@ import { DEFAULT_LOGO } from '@/lib/constants'
 import { isLikelyHtml } from '@/lib/content-format'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { BrandEntrance } from './components/brand-entrance'
 import { LandingPage } from './components/landing-page'
 import { UNIROUTERS_HOME_NAV_LINKS } from './constants'
 import { useHomePageContent } from './hooks'
@@ -123,24 +124,27 @@ export function Home() {
   }
 
   return (
-    <PublicLayout
-      showMainContainer={false}
-      showThemeSwitch
-      siteName='uniRouters'
-      logo={
-        <img
-          src={DEFAULT_LOGO}
-          alt='uniRouters'
-          className='size-8 rounded-lg object-cover'
+    <>
+      <PublicLayout
+        showMainContainer={false}
+        showThemeSwitch
+        siteName='uniRouters'
+        logo={
+          <img
+            src={DEFAULT_LOGO}
+            alt='uniRouters'
+            className='size-8 rounded-lg object-cover'
+          />
+        }
+        navLinks={UNIROUTERS_HOME_NAV_LINKS}
+      >
+        <LandingPage isAuthenticated={isAuthenticated} />
+        <Footer
+          name='uniRouters'
+          className='border-border bg-muted/30 text-foreground'
         />
-      }
-      navLinks={UNIROUTERS_HOME_NAV_LINKS}
-    >
-      <LandingPage isAuthenticated={isAuthenticated} />
-      <Footer
-        name='uniRouters'
-        className='border-border bg-muted/30 text-foreground'
-      />
-    </PublicLayout>
+      </PublicLayout>
+      <BrandEntrance />
+    </>
   )
 }

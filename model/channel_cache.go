@@ -123,8 +123,26 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 	// First, try to find channels with the exact model name.
 	channels := filterChannelsByRequestPathAndModel(group2model2channels[group][model], requestPath, model)
 
-	// If no channels found, try to find channels with the normalized model name.
-	if len(channels) == 0 {
+	if common.ShouldForceClaudeToCFJWL(model) {
+		// Filtering may remove every exact-match candidate. Continue through the
+		// canonical candidates so an exact match on another provider cannot hide
+		// the forced channel's ordinary (non-namespaced) Claude ability.
+		channels = filterChannelsByForcedClaudeRoute(channels, model)
+		if len(channels) == 0 {
+			for _, candidateModel := range forcedClaudeModelCandidates(model) {
+				if candidateModel == model {
+					continue
+				}
+				candidateChannels := filterChannelsByRequestPathAndModel(group2model2channels[group][candidateModel], requestPath, model)
+				candidateChannels = filterChannelsByForcedClaudeRoute(candidateChannels, model)
+				if len(candidateChannels) > 0 {
+					channels = candidateChannels
+					break
+				}
+			}
+		}
+	} else if len(channels) == 0 {
+		// If no channels found, try to find channels with the normalized model name.
 		normalizedModel := ratio_setting.FormatMatchingModelName(model)
 		channels = filterChannelsByRequestPathAndModel(group2model2channels[group][normalizedModel], requestPath, model)
 	}
@@ -206,6 +224,28 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 	}
 	// return null if no channel is not found
 	return nil, errors.New("channel not found")
+}
+
+// filterChannelsByForcedClaudeRoute applies the startup-level Claude route
+// lock after the normal group/model/path checks. An unavailable forced channel
+// deliberately produces no candidate instead of falling back to another
+// provider. Caller must hold channelSyncLock.
+func filterChannelsByForcedClaudeRoute(channels []int, modelName string) []int {
+	if !common.ShouldForceClaudeToCFJWL(modelName) || len(channels) == 0 {
+		return channels
+	}
+
+	filtered := make([]int, 0, 1)
+	for _, channelID := range channels {
+		channel, ok := channelsIDM[channelID]
+		if !ok {
+			continue
+		}
+		if channel.Name == common.ClaudeCFJWLChannelName && channel.Type == constant.ChannelTypeAnthropic {
+			filtered = append(filtered, channelID)
+		}
+	}
+	return filtered
 }
 
 // filterChannelsByRequestPathAndModel restricts candidates by request path and
