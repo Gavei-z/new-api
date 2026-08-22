@@ -43,6 +43,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 	}
+	helper.NormalizeAnthropicOpenAIMaxTokens(c, request)
 
 	includeUsage := true
 	// 判断用户是否需要返回使用情况
@@ -105,6 +106,25 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			}
 		}
 		requestBody = common.ReaderOnly(storage)
+		if info.ChannelType == constant.ChannelTypeAnthropic && helper.RequiresAnthropicMinimumMaxTokens(request.Model) {
+			jsonData, readErr := storage.Bytes()
+			if readErr != nil {
+				return types.NewError(readErr, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
+			}
+			normalized, changed, normalizeErr := helper.NormalizeAnthropicMinimumMaxTokensJSON(c, jsonData, request.Model, types.RelayFormatOpenAI)
+			if normalizeErr != nil {
+				return types.NewError(normalizeErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+			}
+			if changed {
+				body, size, closer, bodyErr := relaycommon.NewOutboundJSONBody(normalized)
+				if bodyErr != nil {
+					return types.NewError(bodyErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+				}
+				defer closer.Close()
+				info.UpstreamRequestBodySize = size
+				requestBody = body
+			}
+		}
 	} else {
 		convertedRequest, err := adaptor.ConvertOpenAIRequest(c, info, request)
 		if err != nil {
@@ -171,6 +191,10 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			if err != nil {
 				return newAPIErrorFromParamOverride(err)
 			}
+		}
+		jsonData, _, err = helper.NormalizeAnthropicMinimumMaxTokensJSON(c, jsonData, "", types.RelayFormatClaude)
+		if err != nil {
+			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 
 		logger.LogDebug(c, "text request body: %s", jsonData)

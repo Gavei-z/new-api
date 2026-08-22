@@ -47,6 +47,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	}
 	adaptor.Init(info)
 
+	helper.NormalizeAnthropicClaudeMaxTokens(c, request)
 	if request.MaxTokens == nil || *request.MaxTokens == 0 {
 		defaultMaxTokens := uint(model_setting.GetClaudeSettings().GetDefaultMaxTokens(request.Model))
 		request.MaxTokens = &defaultMaxTokens
@@ -106,6 +107,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 		info.UpstreamModelName = request.Model
 	}
+	helper.NormalizeAnthropicClaudeMaxTokens(c, request)
 
 	if info.ChannelSetting.SystemPrompt != "" {
 		if request.System == nil {
@@ -161,6 +163,25 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 		info.UpstreamRequestBodySize = storage.Size()
 		requestBody = common.ReaderOnly(storage)
+		if info.ChannelType == constant.ChannelTypeAnthropic && helper.RequiresAnthropicMinimumMaxTokens(request.Model) {
+			jsonData, readErr := storage.Bytes()
+			if readErr != nil {
+				return types.NewError(readErr, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
+			}
+			normalized, changed, normalizeErr := helper.NormalizeAnthropicMinimumMaxTokensJSON(c, jsonData, request.Model, types.RelayFormatClaude)
+			if normalizeErr != nil {
+				return types.NewError(normalizeErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+			}
+			if changed {
+				body, size, closer, bodyErr := relaycommon.NewOutboundJSONBody(normalized)
+				if bodyErr != nil {
+					return types.NewError(bodyErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+				}
+				defer closer.Close()
+				info.UpstreamRequestBodySize = size
+				requestBody = body
+			}
+		}
 	} else {
 		convertedRequest, err := adaptor.ConvertClaudeRequest(c, info, request)
 		if err != nil {
@@ -184,6 +205,10 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			if err != nil {
 				return newAPIErrorFromParamOverride(err)
 			}
+		}
+		jsonData, _, err = helper.NormalizeAnthropicMinimumMaxTokensJSON(c, jsonData, "", types.RelayFormatClaude)
+		if err != nil {
+			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 
 		logger.LogDebug(c, "requestBody: %s", jsonData)

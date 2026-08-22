@@ -1,10 +1,10 @@
 package helper
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"math"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -16,6 +16,8 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/samber/lo"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 
 	"github.com/gin-gonic/gin"
 )
@@ -144,20 +146,123 @@ func RequiresAnthropicMinimumMaxTokens(model string) bool {
 	}
 }
 
-func validateAnthropicMinimumMaxTokens(c *gin.Context, model string, maxTokens uint) error {
+// NormalizeAnthropicMinimumMaxTokens keeps clients that use small output caps
+// compatible with Anthropic upstreams. The normalized value remains an upper
+// bound, not the number of tokens that will necessarily be generated or billed.
+func NormalizeAnthropicMinimumMaxTokens(c *gin.Context, model string, maxTokens *uint) {
 	if common.GetContextKeyInt(c, constant.ContextKeyChannelType) != constant.ChannelTypeAnthropic ||
 		!RequiresAnthropicMinimumMaxTokens(model) ||
-		maxTokens == 0 ||
-		maxTokens >= AnthropicMinimumMaxTokens {
-		return nil
+		maxTokens == nil ||
+		*maxTokens == 0 ||
+		*maxTokens >= AnthropicMinimumMaxTokens {
+		return
 	}
 
-	return types.NewErrorWithStatusCode(
-		fmt.Errorf("max_tokens must be 0 or at least %d for model %s on Anthropic channels", AnthropicMinimumMaxTokens, model),
-		types.ErrorCodeInvalidRequest,
-		http.StatusBadRequest,
-		types.ErrOptionWithSkipRetry(),
-	)
+	*maxTokens = AnthropicMinimumMaxTokens
+}
+
+// NormalizeAnthropicClaudeMaxTokens selects the effective native Claude limit,
+// moves the legacy field to max_tokens, and applies the upstream minimum.
+func NormalizeAnthropicClaudeMaxTokens(c *gin.Context, request *dto.ClaudeRequest) {
+	if request == nil ||
+		common.GetContextKeyInt(c, constant.ContextKeyChannelType) != constant.ChannelTypeAnthropic ||
+		!RequiresAnthropicMinimumMaxTokens(request.Model) {
+		return
+	}
+
+	effective := request.MaxTokens
+	if (effective == nil || *effective == 0) && request.MaxTokensToSample != nil {
+		effective = request.MaxTokensToSample
+	}
+	request.MaxTokens = effective
+	request.MaxTokensToSample = nil
+	NormalizeAnthropicMinimumMaxTokens(c, request.Model, request.MaxTokens)
+}
+
+// NormalizeAnthropicOpenAIMaxTokens selects the same effective limit as
+// GeneralOpenAIRequest.GetMaxTokens, then stores one canonical field so quota
+// estimation and Claude request conversion use the same value.
+func NormalizeAnthropicOpenAIMaxTokens(c *gin.Context, request *dto.GeneralOpenAIRequest) {
+	if request == nil ||
+		common.GetContextKeyInt(c, constant.ContextKeyChannelType) != constant.ChannelTypeAnthropic ||
+		!RequiresAnthropicMinimumMaxTokens(request.Model) {
+		return
+	}
+
+	effective := request.MaxTokens
+	if request.MaxCompletionTokens != nil && *request.MaxCompletionTokens != 0 {
+		effective = request.MaxCompletionTokens
+	} else if effective == nil {
+		effective = request.MaxCompletionTokens
+	}
+	request.MaxTokens = effective
+	request.MaxCompletionTokens = nil
+	NormalizeAnthropicMinimumMaxTokens(c, request.Model, request.MaxTokens)
+}
+
+// NormalizeAnthropicMinimumMaxTokensJSON is the final outbound guard. It runs
+// after model mapping and parameter overrides so those layers cannot restore
+// an upstream-incompatible limit. Alternative client fields are canonicalized
+// to max_tokens according to the input format. mappedModel should be supplied
+// for raw pass-through bodies; it is also written back so model mapping remains
+// effective when the original body is forwarded.
+func NormalizeAnthropicMinimumMaxTokensJSON(c *gin.Context, data []byte, mappedModel string, inputFormat types.RelayFormat) ([]byte, bool, error) {
+	if common.GetContextKeyInt(c, constant.ContextKeyChannelType) != constant.ChannelTypeAnthropic {
+		return data, false, nil
+	}
+
+	model := mappedModel
+	if model == "" {
+		modelResult := gjson.GetBytes(data, "model")
+		if modelResult.Type == gjson.String {
+			model = modelResult.String()
+		}
+	}
+	if !RequiresAnthropicMinimumMaxTokens(model) {
+		return data, false, nil
+	}
+
+	result := data
+	var err error
+	if mappedModel != "" && gjson.GetBytes(result, "model").String() != mappedModel {
+		result, err = sjson.SetBytes(result, "model", mappedModel)
+		if err != nil {
+			return data, false, err
+		}
+	}
+
+	paths := []string{"max_tokens", "max_tokens_to_sample"}
+	if inputFormat == types.RelayFormatOpenAI {
+		paths = []string{"max_completion_tokens", "max_tokens"}
+	}
+	var maxTokens gjson.Result
+	for _, path := range paths {
+		candidate := gjson.GetBytes(result, path)
+		if candidate.Type == gjson.Number && candidate.Int() != 0 {
+			maxTokens = candidate
+			break
+		}
+	}
+	value := maxTokens.Int()
+	if value < int64(AnthropicMinimumMaxTokens) {
+		value = int64(AnthropicMinimumMaxTokens)
+	}
+
+	result, err = sjson.SetBytes(result, "max_tokens", value)
+	if err != nil {
+		return data, false, err
+	}
+	for _, path := range []string{"max_completion_tokens", "max_tokens_to_sample"} {
+		if !gjson.GetBytes(result, path).Exists() {
+			continue
+		}
+		result, err = sjson.DeleteBytes(result, path)
+		if err != nil {
+			return data, false, err
+		}
+	}
+
+	return result, !bytes.Equal(result, data), nil
 }
 
 func exceedsMaxTokensLimit(values ...*uint) bool {
@@ -320,11 +425,7 @@ func GetAndValidateClaudeRequest(c *gin.Context) (textRequest *dto.ClaudeRequest
 	if exceedsMaxTokensLimit(textRequest.MaxTokens, textRequest.MaxTokensToSample) {
 		return nil, errors.New("max_tokens is invalid")
 	}
-	for _, maxTokens := range []*uint{textRequest.MaxTokens, textRequest.MaxTokensToSample} {
-		if err = validateAnthropicMinimumMaxTokens(c, textRequest.Model, lo.FromPtrOr(maxTokens, uint(0))); err != nil {
-			return nil, err
-		}
-	}
+	NormalizeAnthropicClaudeMaxTokens(c, textRequest)
 
 	//if textRequest.Stream {
 	//	relayInfo.IsStream = true
@@ -351,9 +452,7 @@ func GetAndValidateTextRequest(c *gin.Context, relayMode int) (*dto.GeneralOpenA
 		return nil, errors.New("max_tokens is invalid")
 	}
 	if relayMode == relayconstant.RelayModeChatCompletions {
-		if err = validateAnthropicMinimumMaxTokens(c, textRequest.Model, textRequest.GetMaxTokens()); err != nil {
-			return nil, err
-		}
+		NormalizeAnthropicOpenAIMaxTokens(c, textRequest)
 	}
 	if textRequest.Model == "" {
 		return nil, errors.New("model is required")
