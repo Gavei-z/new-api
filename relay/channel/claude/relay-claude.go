@@ -73,7 +73,7 @@ func shouldSkipClaudeMessageDeltaUsagePatch(info *relaycommon.RelayInfo) bool {
 	if info == nil {
 		return false
 	}
-	return info.ChannelSetting.PassThroughBodyEnabled
+	return info.ChannelSetting.PassThroughBodyEnabled || relaycommon.IsAnthropicDirectPassthrough(info)
 }
 
 func patchClaudeMessageDeltaUsageData(data string, usage *dto.ClaudeUsage) string {

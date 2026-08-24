@@ -33,3 +33,18 @@ func TestAdaptorAdvertisesSupportedClaudeSonnetModels(t *testing.T) {
 		assert.Contains(t, models, modelName)
 	}
 }
+
+func TestAdaptorAdvertisesSupportedClaudeHaikuModels(t *testing.T) {
+	models := (&Adaptor{}).GetModelList()
+
+	for _, modelName := range []string{
+		"claude-haiku-4-5",
+		"claude-haiku-4-5-20251001",
+	} {
+		assert.Contains(t, models, modelName)
+	}
+}
+
+func TestAdaptorAdvertisesSupportedClaudeFableModels(t *testing.T) {
+	assert.Contains(t, (&Adaptor{}).GetModelList(), "claude-fable-5")
+}

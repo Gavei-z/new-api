@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -224,4 +225,47 @@ func TestNormalizeAnthropicMinimumMaxTokensJSON(t *testing.T) {
 			require.Equal(t, test.wantLegacyPresent, gjson.GetBytes(result, "max_tokens_to_sample").Exists())
 		})
 	}
+}
+
+func TestAnthropicDirectPassthroughPreservesSmallMaxTokens(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, path := range []string{"/v1/messages", "/v1/chat/completions"} {
+		t.Run(path, func(t *testing.T) {
+			body := `{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}],"max_tokens":16}`
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeAnthropic)
+			common.SetContextKey(c, constant.ContextKeyChannelOtherSetting, dto.ChannelOtherSettings{AnthropicDirectPassthroughEnabled: true})
+
+			if path == "/v1/messages" {
+				request, err := GetAndValidateClaudeRequest(c)
+				require.NoError(t, err)
+				require.Equal(t, uint(16), *request.MaxTokens)
+			} else {
+				request, err := GetAndValidateTextRequest(c, relayconstant.RelayModeChatCompletions)
+				require.NoError(t, err)
+				require.Equal(t, uint(16), *request.MaxTokens)
+			}
+
+			result, changed, err := NormalizeAnthropicMinimumMaxTokensJSON(c, []byte(body), "claude-opus-5", types.RelayFormatClaude)
+			require.NoError(t, err)
+			require.False(t, changed)
+			require.Equal(t, body, string(result))
+		})
+	}
+}
+
+func TestAnthropicDirectPassthroughSettingDoesNotAffectOtherPaths(t *testing.T) {
+	body := `{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}],"max_tokens":16}`
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/completions", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeAnthropic)
+	common.SetContextKey(c, constant.ContextKeyChannelOtherSetting, dto.ChannelOtherSettings{AnthropicDirectPassthroughEnabled: true})
+
+	request := &dto.GeneralOpenAIRequest{Model: "claude-opus-5", MaxTokens: common.GetPointer[uint](16)}
+	NormalizeAnthropicOpenAIMaxTokens(c, request)
+	require.Equal(t, AnthropicMinimumMaxTokens, *request.MaxTokens)
 }

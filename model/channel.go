@@ -988,6 +988,9 @@ func (channel *Channel) ValidateSettings() error {
 			return fmt.Errorf("invalid claude_input_billing_mode: %s", channelOtherSettings.ClaudeInputBillingMode)
 		}
 	}
+	if channelOtherSettings.AnthropicDirectPassthroughEnabled && channel.Type != constant.ChannelTypeAnthropic {
+		return fmt.Errorf("anthropic_direct_passthrough_enabled is only supported for Anthropic channels")
+	}
 	if channelOtherSettings.KiroCreditBillingMode != "" || channelOtherSettings.PricePerCredit != 0 {
 		if channel.Type != constant.ChannelTypeAnthropic {
 			return fmt.Errorf("kiro credit billing is only supported for Anthropic channels")

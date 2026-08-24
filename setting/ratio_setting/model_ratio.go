@@ -125,8 +125,10 @@ var defaultModelRatio = map[string]float64{
 	"text-search-ada-doc-001":                   10,
 	"text-moderation-stable":                    0.1,
 	"text-moderation-latest":                    0.1,
+	"claude-fable-5":                            5.0,   // $10 / 1M input tokens
 	"claude-3-haiku-20240307":                   0.125, // $0.25 / 1M tokens
 	"claude-3-5-haiku-20241022":                 0.5,   // $1 / 1M tokens
+	"claude-haiku-4-5":                          0.5,   // $1 / 1M tokens
 	"claude-haiku-4-5-20251001":                 0.5,   // $1 / 1M tokens
 	"claude-3-sonnet-20240229":                  1.5,   // $3 / 1M tokens
 	"claude-3-5-sonnet-20240620":                1.5,
@@ -544,7 +546,7 @@ func getHardcodedCompletionModelRatio(name string) (float64, bool) {
 
 	if strings.Contains(name, "claude-3") {
 		return 5, true
-	} else if strings.Contains(name, "claude-sonnet-4") || strings.Contains(name, "claude-opus-4") || strings.Contains(name, "claude-haiku-4") || strings.HasPrefix(name, "claude-opus-5") || strings.HasPrefix(name, "claude-sonnet-5") {
+	} else if strings.Contains(name, "claude-sonnet-4") || strings.Contains(name, "claude-opus-4") || strings.Contains(name, "claude-haiku-4") || strings.HasPrefix(name, "claude-fable-5") || strings.HasPrefix(name, "claude-opus-5") || strings.HasPrefix(name, "claude-sonnet-5") {
 		return 5, true
 	}
 

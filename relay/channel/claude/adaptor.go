@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
@@ -43,6 +44,10 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if relaycommon.IsAnthropicDirectPassthrough(info) {
+		return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, info.RequestURLPath, info.ChannelType), nil
+	}
+
 	requestURL := fmt.Sprintf("%s/v1/messages", info.ChannelBaseUrl)
 	if !shouldAppendClaudeBetaQuery(info) {
 		return requestURL, nil
@@ -82,6 +87,33 @@ func CommonClaudeHeadersOperation(c *gin.Context, req *http.Header, info *relayc
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
+	directPassthrough := relaycommon.IsAnthropicDirectPassthrough(info)
+	if directPassthrough {
+		if userAgent := c.Request.UserAgent(); userAgent != "" {
+			req.Set("User-Agent", userAgent)
+		}
+		if info.RelayFormat == types.RelayFormatOpenAI {
+			req.Set("Authorization", "Bearer "+info.ApiKey)
+			return nil
+		}
+
+		// Preserve client-supplied Anthropic protocol headers without applying
+		// local model header rules. Credentials are always replaced below.
+		for name, values := range c.Request.Header {
+			if !strings.HasPrefix(strings.ToLower(name), "anthropic-") {
+				continue
+			}
+			req.Del(name)
+			for _, value := range values {
+				req.Add(name, value)
+			}
+		}
+		req.Set("x-api-key", info.ApiKey)
+		if req.Get("anthropic-version") == "" {
+			req.Set("anthropic-version", "2023-06-01")
+		}
+		return nil
+	}
 	req.Set("x-api-key", info.ApiKey)
 	anthropicVersion := c.Request.Header.Get("anthropic-version")
 	if anthropicVersion == "" {
@@ -122,6 +154,14 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	if relaycommon.IsAnthropicDirectPassthrough(info) {
+		info.FinalRequestRelayFormat = info.RelayFormat
+		if info.IsStream {
+			return DirectPassthroughStreamHandler(c, resp, info)
+		}
+		return DirectPassthroughHandler(c, resp, info)
+	}
+
 	info.FinalRequestRelayFormat = types.RelayFormatClaude
 	if info.IsStream {
 		return ClaudeStreamHandler(c, resp, info)

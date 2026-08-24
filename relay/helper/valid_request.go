@@ -146,11 +146,28 @@ func RequiresAnthropicMinimumMaxTokens(model string) bool {
 	}
 }
 
+func isAnthropicDirectPassthroughContext(c *gin.Context) bool {
+	if c == nil || common.GetContextKeyInt(c, constant.ContextKeyChannelType) != constant.ChannelTypeAnthropic {
+		return false
+	}
+	settings, ok := common.GetContextKeyType[dto.ChannelOtherSettings](c, constant.ContextKeyChannelOtherSetting)
+	if !ok || !settings.AnthropicDirectPassthroughEnabled || c.Request == nil || c.Request.URL == nil {
+		return false
+	}
+	switch c.Request.URL.Path {
+	case "/v1/messages", "/v1/chat/completions":
+		return true
+	default:
+		return false
+	}
+}
+
 // NormalizeAnthropicMinimumMaxTokens keeps clients that use small output caps
 // compatible with Anthropic upstreams. The normalized value remains an upper
 // bound, not the number of tokens that will necessarily be generated or billed.
 func NormalizeAnthropicMinimumMaxTokens(c *gin.Context, model string, maxTokens *uint) {
 	if common.GetContextKeyInt(c, constant.ContextKeyChannelType) != constant.ChannelTypeAnthropic ||
+		isAnthropicDirectPassthroughContext(c) ||
 		!RequiresAnthropicMinimumMaxTokens(model) ||
 		maxTokens == nil ||
 		*maxTokens == 0 ||
@@ -166,6 +183,7 @@ func NormalizeAnthropicMinimumMaxTokens(c *gin.Context, model string, maxTokens 
 func NormalizeAnthropicClaudeMaxTokens(c *gin.Context, request *dto.ClaudeRequest) {
 	if request == nil ||
 		common.GetContextKeyInt(c, constant.ContextKeyChannelType) != constant.ChannelTypeAnthropic ||
+		isAnthropicDirectPassthroughContext(c) ||
 		!RequiresAnthropicMinimumMaxTokens(request.Model) {
 		return
 	}
@@ -185,6 +203,7 @@ func NormalizeAnthropicClaudeMaxTokens(c *gin.Context, request *dto.ClaudeReques
 func NormalizeAnthropicOpenAIMaxTokens(c *gin.Context, request *dto.GeneralOpenAIRequest) {
 	if request == nil ||
 		common.GetContextKeyInt(c, constant.ContextKeyChannelType) != constant.ChannelTypeAnthropic ||
+		isAnthropicDirectPassthroughContext(c) ||
 		!RequiresAnthropicMinimumMaxTokens(request.Model) {
 		return
 	}
@@ -207,7 +226,8 @@ func NormalizeAnthropicOpenAIMaxTokens(c *gin.Context, request *dto.GeneralOpenA
 // for raw pass-through bodies; it is also written back so model mapping remains
 // effective when the original body is forwarded.
 func NormalizeAnthropicMinimumMaxTokensJSON(c *gin.Context, data []byte, mappedModel string, inputFormat types.RelayFormat) ([]byte, bool, error) {
-	if common.GetContextKeyInt(c, constant.ContextKeyChannelType) != constant.ChannelTypeAnthropic {
+	if common.GetContextKeyInt(c, constant.ContextKeyChannelType) != constant.ChannelTypeAnthropic ||
+		isAnthropicDirectPassthroughContext(c) {
 		return data, false, nil
 	}
 
