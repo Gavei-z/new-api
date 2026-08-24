@@ -123,18 +123,18 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 	// First, try to find channels with the exact model name.
 	channels := filterChannelsByRequestPathAndModel(group2model2channels[group][model], requestPath, model)
 
-	if common.ShouldForceClaudeToCFJWL(model) {
+	if common.ShouldForceClaudeToCFJWL(model, requestPath) {
 		// Filtering may remove every exact-match candidate. Continue through the
 		// canonical candidates so an exact match on another provider cannot hide
 		// the forced channel's ordinary (non-namespaced) Claude ability.
-		channels = filterChannelsByForcedClaudeRoute(channels, model)
+		channels = filterChannelsByForcedClaudeRoute(channels, model, requestPath)
 		if len(channels) == 0 {
 			for _, candidateModel := range forcedClaudeModelCandidates(model) {
 				if candidateModel == model {
 					continue
 				}
 				candidateChannels := filterChannelsByRequestPathAndModel(group2model2channels[group][candidateModel], requestPath, model)
-				candidateChannels = filterChannelsByForcedClaudeRoute(candidateChannels, model)
+				candidateChannels = filterChannelsByForcedClaudeRoute(candidateChannels, model, requestPath)
 				if len(candidateChannels) > 0 {
 					channels = candidateChannels
 					break
@@ -230,8 +230,8 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 // lock after the normal group/model/path checks. An unavailable forced channel
 // deliberately produces no candidate instead of falling back to another
 // provider. Caller must hold channelSyncLock.
-func filterChannelsByForcedClaudeRoute(channels []int, modelName string) []int {
-	if !common.ShouldForceClaudeToCFJWL(modelName) || len(channels) == 0 {
+func filterChannelsByForcedClaudeRoute(channels []int, modelName string, requestPath string) []int {
+	if !common.ShouldForceClaudeToCFJWL(modelName, requestPath) || len(channels) == 0 {
 		return channels
 	}
 
@@ -241,11 +241,17 @@ func filterChannelsByForcedClaudeRoute(channels []int, modelName string) []int {
 		if !ok {
 			continue
 		}
-		if channel.Name == common.ClaudeCFJWLChannelName && channel.Type == constant.ChannelTypeAnthropic {
+		if IsClaudeCFJWLChannel(channel) {
 			filtered = append(filtered, channelID)
 		}
 	}
 	return filtered
+}
+
+// IsClaudeCFJWLChannel reports whether a channel is the dedicated Anthropic
+// cfjwl route used while optional Kiro distribution is closed.
+func IsClaudeCFJWLChannel(channel *Channel) bool {
+	return channel != nil && channel.Name == common.ClaudeCFJWLChannelName && channel.Type == constant.ChannelTypeAnthropic
 }
 
 // filterChannelsByRequestPathAndModel restricts candidates by request path and

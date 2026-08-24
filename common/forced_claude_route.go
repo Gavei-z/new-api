@@ -13,13 +13,17 @@ func ClaudeRouteModelName(modelName string) string {
 	return modelName
 }
 
-// ShouldForceClaudeToCFJWL reports whether startup configuration requires this
-// model to use the dedicated cfjwl Claude channel. Namespaced model IDs are
-// supported by inspecting the final path component.
-func ShouldForceClaudeToCFJWL(modelName string) bool {
-	if !ClaudeForceCFJWL {
+// ShouldForceClaudeToCFJWL reports whether the default-closed Kiro routing gate
+// requires this request to use the dedicated cfjwl Claude channel. Token counts
+// always stay on cfjwl because the Kiro endpoint can fall back to a local token
+// estimate. Namespaced model IDs are supported by inspecting the final path
+// component.
+func ShouldForceClaudeToCFJWL(modelName string, requestPath string) bool {
+	if requestPath == "/v1/messages/count_tokens" {
+		return true
+	}
+	if !strings.HasPrefix(ClaudeRouteModelName(modelName), "claude-") {
 		return false
 	}
-
-	return strings.HasPrefix(ClaudeRouteModelName(modelName), "claude-")
+	return !ClaudeKiroRoutingEnabled
 }

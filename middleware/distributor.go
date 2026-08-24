@@ -38,8 +38,8 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
-		forceClaudeToCFJWL := shouldSelectChannel && common.ShouldForceClaudeToCFJWL(modelRequest.Model)
-		if ok && !forceClaudeToCFJWL {
+		forceClaudeToCFJWL := shouldSelectChannel && common.ShouldForceClaudeToCFJWL(modelRequest.Model, c.Request.URL.Path)
+		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {
 				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidChannelId))
@@ -52,6 +52,10 @@ func Distribute() func(c *gin.Context) {
 			}
 			if channel.Status != common.ChannelStatusEnabled {
 				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorChannelDisabled))
+				return
+			}
+			if forceClaudeToCFJWL && !model.IsClaudeCFJWLChannel(channel) {
+				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorChannelNotAllowed))
 				return
 			}
 		} else {

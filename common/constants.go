@@ -90,9 +90,10 @@ var EmailLoginAuthServerList = []string{
 var DebugEnabled bool
 var MemoryCacheEnabled bool
 
-// ClaudeForceCFJWL routes every Claude request through the dedicated
-// cfjwlpro-claude channel when enabled. It is initialized once at startup.
-var ClaudeForceCFJWL bool
+// ClaudeKiroRoutingEnabled allows Claude requests to use the ordinary channel
+// distributor, including kiro2cc-claude. When false, Claude is locked to the
+// dedicated cfjwlpro-claude channel. It is initialized once at startup.
+var ClaudeKiroRoutingEnabled bool
 
 const ClaudeCFJWLChannelName = "cfjwlpro-claude"
 

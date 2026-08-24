@@ -107,7 +107,7 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
 }
 
 func GetChannel(group string, model string, retry int, requestPath string) (*Channel, error) {
-	if common.ShouldForceClaudeToCFJWL(model) {
+	if common.ShouldForceClaudeToCFJWL(model, requestPath) {
 		return getForcedClaudeChannel(group, model)
 	}
 

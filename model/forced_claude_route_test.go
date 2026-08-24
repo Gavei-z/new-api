@@ -11,29 +11,30 @@ import (
 )
 
 func TestFilterChannelsByForcedClaudeRoute(t *testing.T) {
-	previousEnabled := common.ClaudeForceCFJWL
+	previousEnabled := common.ClaudeKiroRoutingEnabled
 	previousChannels := channelsIDM
 	t.Cleanup(func() {
-		common.ClaudeForceCFJWL = previousEnabled
+		common.ClaudeKiroRoutingEnabled = previousEnabled
 		channelsIDM = previousChannels
 	})
 
-	common.ClaudeForceCFJWL = true
+	common.ClaudeKiroRoutingEnabled = false
 	channelsIDM = map[int]*Channel{
 		4: {Id: 4, Name: common.ClaudeCFJWLChannelName, Type: constant.ChannelTypeAnthropic},
 		5: {Id: 5, Name: "kiro2cc-claude", Type: constant.ChannelTypeAnthropic},
 		6: {Id: 6, Name: common.ClaudeCFJWLChannelName, Type: constant.ChannelTypeOpenAI},
 	}
 
-	require.Equal(t, []int{4}, filterChannelsByForcedClaudeRoute([]int{4, 5, 6}, "claude-sonnet-5"))
-	require.Equal(t, []int{4, 5, 6}, filterChannelsByForcedClaudeRoute([]int{4, 5, 6}, "gpt-5.6-sol"))
+	require.Equal(t, []int{4}, filterChannelsByForcedClaudeRoute([]int{4, 5, 6}, "claude-sonnet-5", "/v1/messages"))
+	require.Equal(t, []int{4, 5, 6}, filterChannelsByForcedClaudeRoute([]int{4, 5, 6}, "gpt-5.6-sol", "/v1/messages"))
 
-	common.ClaudeForceCFJWL = false
-	require.Equal(t, []int{4, 5}, filterChannelsByForcedClaudeRoute([]int{4, 5}, "claude-sonnet-5"))
+	common.ClaudeKiroRoutingEnabled = true
+	require.Equal(t, []int{4, 5}, filterChannelsByForcedClaudeRoute([]int{4, 5}, "claude-sonnet-5", "/v1/messages"))
+	require.Equal(t, []int{4}, filterChannelsByForcedClaudeRoute([]int{4, 5}, "claude-sonnet-5", "/v1/messages/count_tokens"))
 }
 
 func TestGetRandomSatisfiedChannelForcedClaudeFallsBackToCanonicalCandidate(t *testing.T) {
-	previousEnabled := common.ClaudeForceCFJWL
+	previousEnabled := common.ClaudeKiroRoutingEnabled
 	previousMemoryCache := common.MemoryCacheEnabled
 
 	channelSyncLock.Lock()
@@ -52,7 +53,7 @@ func TestGetRandomSatisfiedChannelForcedClaudeFallsBackToCanonicalCandidate(t *t
 	channelSyncLock.Unlock()
 
 	t.Cleanup(func() {
-		common.ClaudeForceCFJWL = previousEnabled
+		common.ClaudeKiroRoutingEnabled = previousEnabled
 		common.MemoryCacheEnabled = previousMemoryCache
 		channelSyncLock.Lock()
 		channelsIDM = previousChannels
@@ -60,23 +61,34 @@ func TestGetRandomSatisfiedChannelForcedClaudeFallsBackToCanonicalCandidate(t *t
 		channelSyncLock.Unlock()
 	})
 
-	common.ClaudeForceCFJWL = true
+	common.ClaudeKiroRoutingEnabled = false
 	common.MemoryCacheEnabled = true
 	channel, err := GetRandomSatisfiedChannel("default", "anthropic/claude-sonnet-5", 0, "/v1/messages")
 	require.NoError(t, err)
 	require.NotNil(t, channel)
 	require.Equal(t, 4, channel.Id)
+
+	common.ClaudeKiroRoutingEnabled = true
+	channel, err = GetRandomSatisfiedChannel("default", "anthropic/claude-sonnet-5", 0, "/v1/messages/count_tokens")
+	require.NoError(t, err)
+	require.NotNil(t, channel)
+	require.Equal(t, 4, channel.Id)
+
+	channel, err = GetRandomSatisfiedChannel("default", "anthropic/claude-sonnet-5", 0, "/v1/messages")
+	require.NoError(t, err)
+	require.NotNil(t, channel)
+	require.Equal(t, 5, channel.Id)
 }
 
 func TestGetForcedClaudeChannelIgnoresOtherProviderPriority(t *testing.T) {
 	previousDB := DB
 	previousType := common.MainDatabaseType()
-	previousEnabled := common.ClaudeForceCFJWL
+	previousEnabled := common.ClaudeKiroRoutingEnabled
 	previousGroupCol := commonGroupCol
 	t.Cleanup(func() {
 		DB = previousDB
 		common.SetMainDatabaseType(previousType)
-		common.ClaudeForceCFJWL = previousEnabled
+		common.ClaudeKiroRoutingEnabled = previousEnabled
 		commonGroupCol = previousGroupCol
 	})
 
@@ -85,7 +97,7 @@ func TestGetForcedClaudeChannelIgnoresOtherProviderPriority(t *testing.T) {
 	DB = db
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	initCol()
-	common.ClaudeForceCFJWL = true
+	common.ClaudeKiroRoutingEnabled = false
 	require.NoError(t, db.AutoMigrate(&Channel{}, &Ability{}))
 
 	cfjwlPriority := int64(0)
@@ -109,4 +121,15 @@ func TestGetForcedClaudeChannelIgnoresOtherProviderPriority(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, channel)
 	require.Equal(t, 4, channel.Id)
+
+	common.ClaudeKiroRoutingEnabled = true
+	channel, err = GetChannel("default", "claude-sonnet-5", 0, "/v1/messages/count_tokens")
+	require.NoError(t, err)
+	require.NotNil(t, channel)
+	require.Equal(t, 4, channel.Id)
+
+	channel, err = GetChannel("default", "claude-sonnet-5", 0, "/v1/messages")
+	require.NoError(t, err)
+	require.NotNil(t, channel)
+	require.Equal(t, 5, channel.Id)
 }

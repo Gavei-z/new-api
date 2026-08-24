@@ -1,6 +1,10 @@
 package common
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestClaudeRouteModelName(t *testing.T) {
 	tests := map[string]string{
@@ -12,21 +16,20 @@ func TestClaudeRouteModelName(t *testing.T) {
 	}
 	for input, want := range tests {
 		t.Run(input, func(t *testing.T) {
-			if got := ClaudeRouteModelName(input); got != want {
-				t.Fatalf("ClaudeRouteModelName(%q) = %q, want %q", input, got, want)
-			}
+			require.Equal(t, want, ClaudeRouteModelName(input))
 		})
 	}
 }
 
 func TestShouldForceClaudeToCFJWL(t *testing.T) {
-	previous := ClaudeForceCFJWL
-	t.Cleanup(func() { ClaudeForceCFJWL = previous })
+	previous := ClaudeKiroRoutingEnabled
+	t.Cleanup(func() { ClaudeKiroRoutingEnabled = previous })
 
-	ClaudeForceCFJWL = true
+	ClaudeKiroRoutingEnabled = false
 	tests := []struct {
-		model string
-		want  bool
+		model       string
+		requestPath string
+		want        bool
 	}{
 		{model: "claude-sonnet-5", want: true},
 		{model: "anthropic/claude-opus-5", want: true},
@@ -37,14 +40,12 @@ func TestShouldForceClaudeToCFJWL(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.model, func(t *testing.T) {
-			if got := ShouldForceClaudeToCFJWL(test.model); got != test.want {
-				t.Fatalf("ShouldForceClaudeToCFJWL(%q) = %t, want %t", test.model, got, test.want)
-			}
+			require.Equal(t, test.want, ShouldForceClaudeToCFJWL(test.model, test.requestPath))
 		})
 	}
 
-	ClaudeForceCFJWL = false
-	if ShouldForceClaudeToCFJWL("claude-sonnet-5") {
-		t.Fatal("disabled route lock must not force Claude")
-	}
+	ClaudeKiroRoutingEnabled = true
+	require.False(t, ShouldForceClaudeToCFJWL("claude-sonnet-5", "/v1/messages"))
+	require.True(t, ShouldForceClaudeToCFJWL("claude-sonnet-5", "/v1/messages/count_tokens"))
+	require.True(t, ShouldForceClaudeToCFJWL("provider-model-alias", "/v1/messages/count_tokens"))
 }
